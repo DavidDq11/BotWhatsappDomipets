@@ -1,168 +1,201 @@
-// services/productService.js
-const pool = require('../config/db');
+const { getPool } = require('../config/db');
 
 class ProductService {
-    // Mapeo para traducir entre DB y lo que el usuario ve para las CATEGORÍAS PRINCIPALES
-    static MAIN_CATEGORIES_MAP = {
-        'Litter': '🏖️ Areneras',
-        'Pet Food': '🍖 Alimento Seco',
-        'Pet Treats': '🍬 Snacks para Mascotas',
-        'Accessories': '🎁 Accesorios',
-        'Supplements': '💊 Suplementos',
-        'Wet Food': '🥫 Comida Húmeda', // Tu XLSX la pone como categoría principal 6.
-    };
+  static MAIN_CATEGORIES_MAP = {
+    'Litter': '🏖️ Areneras',
+    'Pet Food': '🍖 Alimento Seco',
+    'Pet Treats': '🍬 Snacks',
+    'Accessories': '🎁 Accesorios',
+    'Supplements': '💊 Suplementos',
+    'Wet Food': '🥫 Comida Húmeda',
+  };
 
-    // Mapeo interno para traducir entre DB (`animal_category`) y lo que el usuario ve
-    static ANIMAL_CATEGORY_MAP = {
-        'cat': '🐱 Gatos',
-        'dog': '🐶 Perros',
-        'poultry': '🐔 Aves',
-        'quail': '🐦 Codornices',
-        'pig': '🐷 Cerdos',
-        'cattle': '🐮 Ganado',
-        'horse': '🐴 Caballos',
-        'rabbit': '🐰 Conejos',
-        'fish': '🐟 Peces',
-    };
+  static ANIMAL_CATEGORY_MAP = {
+    'cat': '🐱 Gato',
+    'dog': '🐶 Perro',
+  };
 
-    // Mapeo para traducir entre DB (`type` o inferido) y lo que el usuario ve para SUBTIPOS DE PRODUCTO
-    static PRODUCT_TYPE_MAP = {
-        'Food': 'Comida Seca', // General para alimento seco
-        'Wet Food': 'Comida Húmeda', // General para alimento húmedo
-        'Litter': 'Arenas Sanitarias', // Para productos de 'Litter'
-        // Añade más si tu columna `type` tiene otros valores significativos
-        // Puedes poner aquí también 'Cat Treats', 'Dog Treats', 'Poultry Accessories' si quieres un nivel adicional
-        // pero por ahora 'type' solo parece ser 'Food' o 'Wet Food' en tus ejemplos.
-        // Las categorías como 'Cat Treats' son el valor de la columna 'category'.
-        'Cat Treats': 'Snacks para Gatos',
-        'Dog Treats': 'Snacks para Perros',
-        'Poultry Accessories': 'Accesorios Aves', // Si 'type' toma este valor
-        // Para los accesorios y suplementos, tu xlsx no muestra un 'type' específico,
-        // así que los productos podrían listarse directamente después de elegir la categoría principal y el animal.
-    };
-
-    /**
-     * Obtiene las categorías principales (ej. 'Litter', 'Pet Food').
-     * @returns {Promise<Array<string>>}
-     */
-    static async getMainCategories() {
-        try {
-            const result = await pool.query('SELECT DISTINCT category FROM products ORDER BY category');
-            // Filtrar para asegurar que solo devolvemos las categorías que tenemos en nuestro mapeo
-            return result.rows.map(row => row.category).filter(cat => ProductService.MAIN_CATEGORIES_MAP[cat]);
-        } catch (error) {
-            console.error('Error fetching main categories:', error);
-            return [];
-        }
+  static async getMainCategories(animalCategory) {
+    try {
+      const pool = await getPool(); // Ensure pool is initialized
+      let query = 'SELECT DISTINCT category FROM products';
+      const params = [];
+      if (animalCategory) {
+        query += ' WHERE animal_category = $1';
+        params.push(animalCategory);
+      } else {
+        query += ' WHERE animal_category IN ($1, $2)';
+        params.push('Dog', 'Cat');
+      }
+      query += ' ORDER BY category';
+      console.log(`Executing getMainCategories query: ${query}, params: ${params}`);
+      const result = await pool.query(query, params);
+      const categories = result.rows.map(row => row.category);
+      console.log(`Categories fetched for ${animalCategory || 'Dog/Cat'}:`, categories);
+      return categories.filter(cat => ProductService.MAIN_CATEGORIES_MAP[cat]);
+    } catch (error) {
+      console.error(`Error fetching main categories for ${animalCategory || 'Dog/Cat'}:`, error.stack);
+      throw error; // Throw the error instead of returning an empty array
     }
+  }
 
-    /**
-     * Obtiene los tipos de animales para una categoría principal dada.
-     * @param {string} mainCategory - Ej: 'Pet Food', 'Litter'
-     * @returns {Promise<Array<string>>} Ej: ['cat', 'dog']
-     */
-    static async getAnimalsByMainCategory(mainCategory) {
-        try {
-            const result = await pool.query(
-                'SELECT DISTINCT animal_category FROM products WHERE category = $1 AND animal_category IS NOT NULL ORDER BY animal_category',
-                [mainCategory]
-            );
-            return result.rows.map(row => row.animal_category);
-        } catch (error) {
-            console.error(`Error fetching animal categories for main category ${mainCategory}:`, error);
-            return [];
-        }
+  // Update other methods similarly to use getPool()
+  static async getProducts(category, animalCategory, type, offset = 0, limit = 10) {
+    try {
+      const pool = await getPool();
+      let query = `
+        SELECT 
+          p.id, 
+          p.title, 
+          p.description, 
+          p.category,
+          MIN(ps.price) AS price,
+          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
+          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
+          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
+          r.rating_rate,
+          r.rating_count
+        FROM products p
+        LEFT JOIN product_sizes ps ON p.id = ps.product_id
+        LEFT JOIN ratings r ON p.id = r.product_id
+        WHERE p.category = $1 AND p.animal_category = $2
+      `;
+      const params = [category, animalCategory];
+      let paramIndex = 3;
+
+      if (type) {
+        query += ` AND p.type = $${paramIndex++}`;
+        params.push(type);
+      }
+
+      query += `
+        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
+        ORDER BY p.id
+        OFFSET $${paramIndex++} LIMIT $${paramIndex++}
+      `;
+      params.push(offset, limit);
+
+      console.log(`Executing getProducts query: ${query}, params: ${params}`);
+      const result = await pool.query(query, params);
+      console.log(`Products fetched for category=${category}, animal=${animalCategory}, type=${type}:`, result.rows);
+      return result.rows.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        category: p.category,
+        price: Number(p.price) || 0,
+        special_price: Number(p.price) || 0,
+        sizes: p.sizes.filter(s => s !== null),
+        sizeDetails: p.size_details.filter(s => s !== null),
+        stock: p.in_stock ? 'In stock' : 'Out of stock',
+        rating_rate: p.rating_rate,
+        rating_count: p.rating_count,
+      }));
+    } catch (error) {
+      console.error(`Error fetching products for ${category}, ${animalCategory}, ${type}:`, error.stack);
+      throw error;
     }
+  }
 
-    /**
-     * Obtiene los subtipos de productos (valores de la columna `type`) para una categoría principal y animal dados.
-     * @param {string} mainCategory - Ej: 'Pet Food'
-     * @param {string} animalCategory - Ej: 'dog', 'cat'
-     * @returns {Promise<Array<string>>} Ej: ['Food', 'Wet Food']
-     */
-    static async getProductSubtypes(mainCategory, animalCategory) {
-        try {
-            const result = await pool.query(
-                'SELECT DISTINCT type FROM products WHERE category = $1 AND animal_category = $2 AND type IS NOT NULL ORDER BY type',
-                [mainCategory, animalCategory]
-            );
-            // Asegurarse de que solo se devuelven tipos que tienen un mapeo si es necesario
-            // o que quieres que aparezcan como subtipos en la lista.
-            return result.rows.map(row => row.type).filter(type => ProductService.PRODUCT_TYPE_MAP[type]);
-        } catch (error) {
-            console.error(`Error fetching product subtypes for ${mainCategory} and ${animalCategory}:`, error);
-            return [];
-        }
+  static async getProductById(productId) {
+    try {
+      const pool = await getPool();
+      const result = await pool.query(
+        `
+        SELECT 
+          p.id, 
+          p.title, 
+          p.description, 
+          p.category,
+          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
+          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
+          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
+          r.rating_rate,
+          r.rating_count
+        FROM products p
+        LEFT JOIN product_sizes ps ON p.id = ps.product_id
+        LEFT JOIN ratings r ON p.id = r.product_id
+        WHERE p.id = $1 AND p.animal_category IN ('Dog', 'Cat')
+        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
+        `,
+        [productId]
+      );
+      const imageResult = await pool.query('SELECT image_url FROM images WHERE product_id = $1 LIMIT 1', [productId]);
+      const image_url = imageResult.rows[0]?.image_url || null;
+      if (result.rows.length > 0) {
+        const p = result.rows[0];
+        return {
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          category: p.category,
+          price: Number(p.size_details[0]?.price) || 0,
+          special_price: Number(p.size_details[0]?.price) || 0,
+          sizes: p.sizes.filter(s => s !== null),
+          sizeDetails: p.size_details.filter(s => s !== null),
+          stock: p.in_stock ? 'In stock' : 'Out of stock',
+          rating_rate: p.rating_rate,
+          rating_count: p.rating_count,
+          image_url,
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error(`Error fetching product ${productId}:`, error.stack);
+      throw error;
     }
+  }
 
-    /**
-     * Obtiene productos basados en categoría principal, animal y subtipo (si aplica).
-     * @param {string} mainCategory - Ej: 'Pet Food'
-     * @param {string} animalCategory - Ej: 'dog'
-     * @param {string} productSubtype - Ej: 'Food', 'Wet Food' (Este es el `type` de tu DB)
-     * @param {number} offset
-     * @param {number} limit
-     * @returns {Promise<Array<Object>>}
-     */
-    static async getProducts(mainCategory, animalCategory, productSubtype, offset = 0, limit = 10) {
-        try {
-            let query = `
-                SELECT id, title, description, price, prevprice AS special_price, sizes, stock, rating_rate, rating_count
-                FROM products
-                WHERE category = $1
-            `;
-            const params = [mainCategory];
-            let paramIndex = 2;
-
-            if (animalCategory) {
-                query += ` AND animal_category = $${paramIndex++}`;
-                params.push(animalCategory);
-            }
-            if (productSubtype) {
-                query += ` AND type = $${paramIndex++}`;
-                params.push(productSubtype);
-            }
-
-            query += ` ORDER BY id OFFSET $${paramIndex++} LIMIT $${paramIndex++}`;
-            params.push(offset, limit);
-
-            const result = await pool.query(query, params);
-
-            return result.rows.map(p => ({
-                ...p,
-                special_price: p.prevprice || p.price
-            }));
-        } catch (error) {
-            console.error(`Error fetching products for ${mainCategory}, ${animalCategory}, ${productSubtype}:`, error);
-            return [];
-        }
+  static async searchProducts(searchTerm, animalCategory) {
+    try {
+      const pool = await getPool();
+      const query = `
+        SELECT 
+          p.id, 
+          p.title, 
+          p.description, 
+          p.category,
+          MIN(ps.price) AS price,
+          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
+          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
+          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
+          r.rating_rate,
+          r.rating_count
+        FROM products p
+        LEFT JOIN product_sizes ps ON p.id = ps.product_id
+        LEFT JOIN ratings r ON p.id = r.product_id
+        WHERE (
+          p.title ILIKE $1 OR 
+          p.description ILIKE $1 OR 
+          p.category ILIKE $1 OR 
+          p.type ILIKE $1
+        ) AND p.animal_category = $2
+        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
+        ORDER BY p.id
+        LIMIT 10
+      `;
+      const params = [`%${searchTerm}%`, animalCategory || 'Dog'];
+      console.log(`Executing searchProducts query: ${query}, params: ${params}`);
+      const result = await pool.query(query, params);
+      console.log(`Search results for term=${searchTerm}, animal=${animalCategory}:`, result.rows);
+      return result.rows.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        category: p.category,
+        price: Number(p.price) || 0,
+        special_price: Number(p.price) || 0,
+        sizes: p.sizes.filter(s => s !== null),
+        sizeDetails: p.size_details.filter(s => s !== null),
+        stock: p.in_stock ? 'In stock' : 'Out of stock',
+        rating_rate: p.rating_rate,
+        rating_count: p.rating_count,
+      }));
+    } catch (error) {
+      console.error(`Error searching products for ${searchTerm}:`, error.stack);
+      throw error;
     }
-
-    /**
-     * Obtiene un producto por su ID.
-     * @param {number} productId
-     * @returns {Promise<Object|null>}
-     */
-    static async getProductById(productId) {
-        try {
-            const result = await pool.query(
-                `SELECT id, title, description, price, prevprice AS special_price, sizes, stock, rating_rate, rating_count
-                 FROM products
-                 WHERE id = $1`,
-                [productId]
-            );
-            if (result.rows.length > 0) {
-                 return {
-                    ...result.rows[0],
-                    special_price: result.rows[0].prevprice || result.rows[0].price
-                 };
-            }
-            return null;
-        } catch (error) {
-            console.error(`Error fetching product with ID ${productId}:`, error);
-            return null;
-        }
-    }
+  }
 }
 
 module.exports = ProductService;

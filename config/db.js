@@ -5,7 +5,7 @@ let pool;
 let connectionAttempts = 0;
 const MAX_ATTEMPTS = 3;
 
-const setupPool = () => {
+const setupPool = async () => {
     try {
         connectionAttempts++;
         console.log(`Attempt ${connectionAttempts} to connect to database`);
@@ -13,47 +13,36 @@ const setupPool = () => {
         pool = new Pool({
             connectionString: process.env.DATABASE_URL,
             ssl: {
-                rejectUnauthorized: false, // Necesario para Neon Tech
+                rejectUnauthorized: false,
             },
             connectionTimeoutMillis: 5000,
             idleTimeoutMillis: 30000,
         });
 
-        // Testear la conexión
-        pool.query('SELECT NOW()', (err) => {
-            if (err) {
-                console.error('Database connection test failed:', err);
-                if (err.code === 'ECONNREFUSED' && connectionAttempts < MAX_ATTEMPTS) {
-                    console.log('Reattempting connection in 5 seconds...');
-                    setTimeout(setupPool, 5000);
-                } else {
-                    console.error('Max connection attempts reached. Giving up.');
-                }
-            } else {
-                console.log('Successfully connected to Neon Tech database');
-            }
-        });
-
-        // Manejo de errores inesperados
-        pool.on('error', (err, client) => {
-            console.error('Unexpected error on idle client:', err);
-            if (err.code === 'ECONNREFUSED' && connectionAttempts < MAX_ATTEMPTS) {
-                console.log('Attempting to reconnect...');
-                setupPool();
-            }
-        });
+        // Test the connection
+        await pool.query('SELECT NOW()');
+        console.log('Successfully connected to Neon Tech database');
+        return pool;
     } catch (err) {
         console.error('Error setting up database pool:', err);
         if (connectionAttempts < MAX_ATTEMPTS) {
             console.log(`Retrying in 5 seconds... (Attempt ${connectionAttempts}/${MAX_ATTEMPTS})`);
-            setTimeout(setupPool, 5000);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            return setupPool();
         } else {
             console.error('Max connection attempts reached. Application will not function without database.');
-            process.exit(1);
+            process.exit(1); // Exit process on failure
         }
     }
 };
 
-setupPool();
+const poolPromise = setupPool();
 
-module.exports = pool;
+module.exports = {
+    getPool: async () => {
+        if (!pool) {
+            await poolPromise; // Wait for the pool to be initialized
+        }
+        return pool;
+    },
+};
