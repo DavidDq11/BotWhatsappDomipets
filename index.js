@@ -7,7 +7,9 @@ const { getPool } = require('./config/db'); // Import getPool instead of pool
 
 dotenv.config();
 const app = express();
-const port = process.env.PORT || 3000;
+
+// Usa process.env.PORT y escucha en 0.0.0.0 para accesibilidad externa
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use('/webhook', webhookRouter);
@@ -66,8 +68,9 @@ if (process.env.NODE_ENV !== 'production') {
 // Initialize database connection before starting the server
 getPool()
     .then(() => {
-        app.listen(port, () => {
-            console.log(`Server running on http://localhost:${port}`);
+        // Escucha en 0.0.0.0 para que sea accesible externamente en Render
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server running on http://0.0.0.0:${PORT}`);
         });
 
         // Periodic session cleanup
