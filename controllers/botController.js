@@ -4,8 +4,8 @@ const sessionManager = require('../utils/sessionManager');
 const { getPool } = require('../config/db');
 require('dotenv').config();
 
-if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN) {
-  throw new Error('WHATSAPP_PHONE_NUMBER_ID y WHATSAPP_ACCESS_TOKEN deben estar definidos en el archivo .env');
+if (!process.env.WHATSAPP_PHONE_NUMBER_ID || !process.env.WHATSAPP_ACCESS_TOKEN || !process.env.CATALOG_ID) {
+  throw new Error('WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN y CATALOG_ID deben estar definidos en el archivo .env');
 }
 
 const STATES = {
@@ -269,7 +269,6 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         await sessionManager.update(phone, session);
         try {
           const categories = await productService.getMainCategories(session.preferredAnimal);
-          console.log(`Categories for ${session.preferredAnimal}:`, categories);
           if (!categories.length) {
             response = {
               text: `😿 ¡Vaya! No encontramos categorías para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS. ¡Intenta de nuevo o elige otro amigo peludo!`,
@@ -307,7 +306,34 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     };
 
     const handleSelectCategory = async () => {
-      if (processedMessage.startsWith('cat_')) {
+      if (processedMessage === 'ver_catalogo') {
+        session.state = STATES.SELECT_PRODUCT;
+        session.catalog.offset = 0;
+        await sessionManager.update(phone, session);
+        const products = await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
+        if (!products.length) {
+          response = {
+            text: '😿 No encontramos productos en el catálogo. ¡Vuelve a intentarlo más tarde!',
+            buttons: BUTTONS.CATALOG,
+          };
+          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+        } else {
+          response = {
+            text: `🛍️ ¡Aquí tienes nuestro catálogo para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}! Elige un producto:`,
+            list: {
+              sections: [{
+                title: 'Productos DOMIPETS',
+                rows: products.map(p => ({
+                  id: `prod_${p.id}`,
+                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                })),
+              }],
+            },
+            buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+          };
+          await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
+        }
+      } else if (processedMessage.startsWith('cat_')) {
         session.catalog.category = processedMessage.replace('cat_', '');
         session.state = STATES.SELECT_PRODUCT;
         session.catalog.offset = 0;
@@ -325,15 +351,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             list: {
               sections: [{
                 title: 'Productos DOMIPETS',
-                rows: products.map(p => {
-                  const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                  const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                  const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                  return {
-                    id: `prod_${p.id}`,
-                    title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                  };
-                }),
+                rows: products.map(p => ({
+                  id: `prod_${p.id}`,
+                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                })),
               }],
             },
             buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
@@ -363,21 +384,18 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       if (processedMessage === 'next') {
         session.catalog.offset += 10;
         await sessionManager.update(phone, session);
-        const products = await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset);
+        const products = session.catalog.category
+          ? await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset)
+          : await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
         response = {
-          text: `🛍️ Más productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category}:`,
+          text: `🛍️ Más productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}:`,
           list: {
             sections: [{
               title: 'Productos DOMIPETS',
-              rows: products.map(p => {
-                const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                return {
-                  id: `prod_${p.id}`,
-                  title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                };
-              }),
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
             }],
           },
           buttons: products.length >= 10
@@ -388,21 +406,18 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       } else if (processedMessage === 'prev') {
         session.catalog.offset = Math.max(0, session.catalog.offset - 10);
         await sessionManager.update(phone, session);
-        const products = await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset);
+        const products = session.catalog.category
+          ? await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset)
+          : await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
         response = {
-          text: `🛍️ Productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category}:`,
+          text: `🛍️ Productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}:`,
           list: {
             sections: [{
               title: 'Productos DOMIPETS',
-              rows: products.map(p => {
-                const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                return {
-                  id: `prod_${p.id}`,
-                  title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                };
-              }),
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
             }],
           },
           buttons: products.length >= 10
@@ -411,7 +426,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         };
         await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
       } else if (processedMessage.startsWith('prod_')) {
-        const productId = parseInt(processedMessage.replace('prod_', ''), 10);
+        const productId = processedMessage.replace('prod_', '');
         const product = await productService.getProductById(productId);
         if (!product) {
           response = { text: '😿 ¡Ups! No encontramos ese producto en DOMIPETS. Elige otro o escribe "volver".', buttons: addBackButton([]) };
@@ -434,41 +449,21 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               }
             );
           }
-          if (product.sizes.length > 1) {
-            session.state = STATES.SELECT_SIZE;
-            session.selectedProduct = product;
-            await sessionManager.update(phone, session);
-            response = {
-              text: `📦 ${product.title}\n${product.description}\n💰 Precio: $${product.price}\n${product.sizeDetails.some(s => s.stock_quantity <= 5) ? '⚠️ ¡Quedan pocas unidades!' : ''}\nElige una talla o escribe 'volver':`,
-              list: {
-                sections: [{
-                  title: 'Tallas DOMIPETS',
-                  rows: product.sizes.map((s, i) => ({
-                    id: `size_${i}`,
-                    title: `${s} - $${product.sizeDetails[i].price}${product.sizeDetails[i].stock_quantity <= 5 ? ' ⚠️ ¡Pocas!' : ''}`.slice(0, 24),
-                  })),
-                }],
-              },
-              buttons: BUTTONS.CATALOG,
-            };
-            await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-          } else {
-            session.state = STATES.ADD_TO_CART;
-            session.selectedProduct = product;
-            session.selectedSize = product.sizes[0] || 'Única';
-            await sessionManager.update(phone, session);
-            const stockAlert = product.sizeDetails[0]?.stock_quantity <= 5 ? '⚠️ ¡Quedan pocas unidades!' : '';
-            response = {
-              text: `📦 ${product.title} (${session.selectedSize})\n${product.description}\n💰 Precio: $${product.sizeDetails[0]?.price || product.price}\n${stockAlert}\n¿Cuántas unidades quieres para tu peludo?`,
-              buttons: [
-                { id: 'qty_1', title: '1' },
-                { id: 'qty_2', title: '2' },
-                { id: 'qty_5', title: '5' },
-                ...addBackButton([]),
-              ],
-            };
-            await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-          }
+          session.state = STATES.ADD_TO_CART;
+          session.selectedProduct = product;
+          session.selectedSize = product.sizes[0] || 'Única';
+          await sessionManager.update(phone, session);
+          const stockAlert = product.sizeDetails[0]?.stock_quantity <= 5 ? '⚠️ ¡Quedan pocas unidades!' : '';
+          response = {
+            text: `📦 ${product.title} (${session.selectedSize})\n${product.description}\n💰 Precio: $${product.sizeDetails[0]?.price || product.price}\n${stockAlert}\n¿Cuántas unidades quieres para tu peludo?`,
+            buttons: [
+              { id: 'qty_1', title: '1' },
+              { id: 'qty_2', title: '2' },
+              { id: 'qty_5', title: '5' },
+              ...addBackButton([]),
+            ],
+          };
+          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         }
       } else if (processedMessage === 'volver') {
         session.state = STATES.SELECT_CATEGORY;
@@ -528,15 +523,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
           list: {
             sections: [{
               title: 'Productos DOMIPETS',
-              rows: products.map(p => {
-                const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                return {
-                  id: `prod_${p.id}`,
-                  title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                };
-              }),
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
             }],
           },
           buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
@@ -605,7 +595,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             3
           );
           if (recommendedProducts.length) {
-            recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}${p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : ''}`).join('\n')}`;
+            recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}`).join('\n')}`;
           } else {
             recommendationText += `\n😿 No tenemos ${recommendedCategory.toLowerCase()} ahora, pero explora más productos en DOMIPETS.`;
           }
@@ -634,15 +624,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
           list: {
             sections: [{
               title: 'Productos DOMIPETS',
-              rows: products.map(p => {
-                const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                return {
-                  id: `prod_${p.id}`,
-                  title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                };
-              }),
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
             }],
           },
           buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
@@ -696,7 +681,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         3
       );
       if (recommendedProducts.length) {
-        recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}${p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : ''}`).join('\n')}`;
+        recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}`).join('\n')}`;
       } else {
         recommendationText += `\n😿 No tenemos ${recommendedCategory.toLowerCase()} ahora, pero explora más productos en DOMIPETS.`;
       }
@@ -844,15 +829,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             list: {
               sections: [{
                 title: 'Productos DOMIPETS',
-                rows: products.map(p => {
-                  const title = p.title.replace(/ x \d+ (Gms|Kgm|Kgms)/, '').slice(0, 16);
-                  const price = `$${Math.round(p.special_price || p.price)}`.slice(0, 7);
-                  const stockAlert = p.sizeDetails.some(s => s.stock_quantity <= 5) ? ' ⚠️ ¡Pocas unidades!' : '';
-                  return {
-                    id: `prod_${p.id}`,
-                    title: `${title} ${price}${stockAlert}`.slice(0, 24),
-                  };
-                }),
+                rows: products.map(p => ({
+                  id: `prod_${p.id}`,
+                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                })),
               }],
             },
             buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,

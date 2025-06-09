@@ -1,4 +1,5 @@
 const { getPool } = require('../config/db');
+const axios = require('axios');
 
 class ProductService {
   static MAIN_CATEGORIES_MAP = {
@@ -15,131 +16,91 @@ class ProductService {
     'dog': '🐶 Perro',
   };
 
-  static async getMainCategories(animalCategory) {
+  static async getCatalogProducts(animalCategory, offset = 0, limit = 10) {
     try {
-      const pool = await getPool(); // Ensure pool is initialized
-      let query = 'SELECT DISTINCT category FROM products';
-      const params = [];
-      if (animalCategory) {
-        query += ' WHERE animal_category = $1';
-        params.push(animalCategory);
-      } else {
-        query += ' WHERE animal_category IN ($1, $2)';
-        params.push('Dog', 'Cat');
-      }
-      query += ' ORDER BY category';
-      console.log(`Executing getMainCategories query: ${query}, params: ${params}`);
-      const result = await pool.query(query, params);
-      const categories = result.rows.map(row => row.category);
-      console.log(`Categories fetched for ${animalCategory || 'Dog/Cat'}:`, categories);
-      return categories.filter(cat => ProductService.MAIN_CATEGORIES_MAP[cat]);
+      const catalogId = process.env.CATALOG_ID;
+      const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+      const response = await axios.get(
+        `https://graph.facebook.com/v22.0/${catalogId}/products`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: {
+            fields: 'id,name,description,price,availability,category',
+            limit,
+            offset,
+          },
+        }
+      );
+      return response.data.data
+        .filter(product => {
+          const categoryMatch = product.category && (
+            product.category.toLowerCase().includes(animalCategory.toLowerCase()) ||
+            animalCategory.toLowerCase() === 'dog' && product.category.toLowerCase().includes('perro') ||
+            animalCategory.toLowerCase() === 'cat' && product.category.toLowerCase().includes('gato')
+          );
+          return categoryMatch;
+        })
+        .map(product => ({
+          id: product.id,
+          title: product.name,
+          description: product.description || 'Sin descripción',
+          category: product.category || 'Otros',
+          price: product.price || 'No disponible',
+          sizes: ['Única'],
+          sizeDetails: [{ size: 'Única', price: product.price || 0, stock_quantity: product.availability === 'in stock' ? 10 : 0 }],
+          stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
+        }));
     } catch (error) {
-      console.error(`Error fetching main categories for ${animalCategory || 'Dog/Cat'}:`, error.stack);
-      throw error; // Throw the error instead of returning an empty array
+      console.error('Error al obtener productos del catálogo:', error);
+      throw error;
     }
   }
 
-  // Update other methods similarly to use getPool()
+  static async getMainCategories(animalCategory) {
+    try {
+      const products = await this.getCatalogProducts(animalCategory);
+      const categories = [...new Set(products.map(p => p.category.split(' - ')[0]))];
+      return categories.filter(cat => this.MAIN_CATEGORIES_MAP[cat] || cat);
+    } catch (error) {
+      console.error(`Error fetching main categories for ${animalCategory}:`, error.stack);
+      throw error;
+    }
+  }
+
   static async getProducts(category, animalCategory, type, offset = 0, limit = 10) {
     try {
-      const pool = await getPool();
-      let query = `
-        SELECT 
-          p.id, 
-          p.title, 
-          p.description, 
-          p.category,
-          MIN(ps.price) AS price,
-          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
-          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
-          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
-          r.rating_rate,
-          r.rating_count
-        FROM products p
-        LEFT JOIN product_sizes ps ON p.id = ps.product_id
-        LEFT JOIN ratings r ON p.id = r.product_id
-        WHERE p.category = $1 AND p.animal_category = $2
-      `;
-      const params = [category, animalCategory];
-      let paramIndex = 3;
-
-      if (type) {
-        query += ` AND p.type = $${paramIndex++}`;
-        params.push(type);
-      }
-
-      query += `
-        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
-        ORDER BY p.id
-        OFFSET $${paramIndex++} LIMIT $${paramIndex++}
-      `;
-      params.push(offset, limit);
-
-      console.log(`Executing getProducts query: ${query}, params: ${params}`);
-      const result = await pool.query(query, params);
-      console.log(`Products fetched for category=${category}, animal=${animalCategory}, type=${type}:`, result.rows);
-      return result.rows.map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        category: p.category,
-        price: Number(p.price) || 0,
-        special_price: Number(p.price) || 0,
-        sizes: p.sizes.filter(s => s !== null),
-        sizeDetails: p.size_details.filter(s => s !== null),
-        stock: p.in_stock ? 'In stock' : 'Out of stock',
-        rating_rate: p.rating_rate,
-        rating_count: p.rating_count,
-      }));
+      const products = await this.getCatalogProducts(animalCategory, offset, limit);
+      return products.filter(p => p.category.split(' - ')[0] === category);
     } catch (error) {
-      console.error(`Error fetching products for ${category}, ${animalCategory}, ${type}:`, error.stack);
+      console.error(`Error fetching products for ${category}, ${animalCategory}:`, error.stack);
       throw error;
     }
   }
 
   static async getProductById(productId) {
     try {
-      const pool = await getPool();
-      const result = await pool.query(
-        `
-        SELECT 
-          p.id, 
-          p.title, 
-          p.description, 
-          p.category,
-          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
-          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
-          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
-          r.rating_rate,
-          r.rating_count
-        FROM products p
-        LEFT JOIN product_sizes ps ON p.id = ps.product_id
-        LEFT JOIN ratings r ON p.id = r.product_id
-        WHERE p.id = $1 AND p.animal_category IN ('Dog', 'Cat')
-        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
-        `,
-        [productId]
+      const catalogId = process.env.CATALOG_ID;
+      const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+      const response = await axios.get(
+        `https://graph.facebook.com/v22.0/${productId}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { fields: 'id,name,description,price,availability,category,image_url' },
+        }
       );
-      const imageResult = await pool.query('SELECT image_url FROM images WHERE product_id = $1 LIMIT 1', [productId]);
-      const image_url = imageResult.rows[0]?.image_url || null;
-      if (result.rows.length > 0) {
-        const p = result.rows[0];
-        return {
-          id: p.id,
-          title: p.title,
-          description: p.description,
-          category: p.category,
-          price: Number(p.size_details[0]?.price) || 0,
-          special_price: Number(p.size_details[0]?.price) || 0,
-          sizes: p.sizes.filter(s => s !== null),
-          sizeDetails: p.size_details.filter(s => s !== null),
-          stock: p.in_stock ? 'In stock' : 'Out of stock',
-          rating_rate: p.rating_rate,
-          rating_count: p.rating_count,
-          image_url,
-        };
-      }
-      return null;
+      const p = response.data;
+      return {
+        id: p.id,
+        title: p.name,
+        description: p.description || 'Sin descripción',
+        category: p.category || 'Otros',
+        price: Number(p.price) || 0,
+        special_price: Number(p.price) || 0,
+        sizes: ['Única'],
+        sizeDetails: [{ size: 'Única', price: Number(p.price) || 0, stock_quantity: p.availability === 'in stock' ? 10 : 0 }],
+        stock: p.availability === 'in stock' ? 'In stock' : 'Out of stock',
+        image_url: p.image_url || null,
+      };
     } catch (error) {
       console.error(`Error fetching product ${productId}:`, error.stack);
       throw error;
@@ -148,49 +109,12 @@ class ProductService {
 
   static async searchProducts(searchTerm, animalCategory) {
     try {
-      const pool = await getPool();
-      const query = `
-        SELECT 
-          p.id, 
-          p.title, 
-          p.description, 
-          p.category,
-          MIN(ps.price) AS price,
-          ARRAY_AGG(DISTINCT ps.size ORDER BY ps.size) AS sizes,
-          ARRAY_AGG(DISTINCT jsonb_build_object('size', ps.size, 'price', ps.price, 'stock_quantity', ps.stock_quantity)) AS size_details,
-          BOOL_AND(ps.stock_quantity > 0) AS in_stock,
-          r.rating_rate,
-          r.rating_count
-        FROM products p
-        LEFT JOIN product_sizes ps ON p.id = ps.product_id
-        LEFT JOIN ratings r ON p.id = r.product_id
-        WHERE (
-          p.title ILIKE $1 OR 
-          p.description ILIKE $1 OR 
-          p.category ILIKE $1 OR 
-          p.type ILIKE $1
-        ) AND p.animal_category = $2
-        GROUP BY p.id, p.title, p.description, p.category, r.rating_rate, r.rating_count
-        ORDER BY p.id
-        LIMIT 10
-      `;
-      const params = [`%${searchTerm}%`, animalCategory || 'Dog'];
-      console.log(`Executing searchProducts query: ${query}, params: ${params}`);
-      const result = await pool.query(query, params);
-      console.log(`Search results for term=${searchTerm}, animal=${animalCategory}:`, result.rows);
-      return result.rows.map(p => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        category: p.category,
-        price: Number(p.price) || 0,
-        special_price: Number(p.price) || 0,
-        sizes: p.sizes.filter(s => s !== null),
-        sizeDetails: p.size_details.filter(s => s !== null),
-        stock: p.in_stock ? 'In stock' : 'Out of stock',
-        rating_rate: p.rating_rate,
-        rating_count: p.rating_count,
-      }));
+      const products = await this.getCatalogProducts(animalCategory);
+      return products.filter(p =>
+        p.title.toLowerCase().includes(searchTerm) ||
+        p.description.toLowerCase().includes(searchTerm) ||
+        p.category.toLowerCase().includes(searchTerm)
+      ).slice(0, 10);
     } catch (error) {
       console.error(`Error searching products for ${searchTerm}:`, error.stack);
       throw error;
