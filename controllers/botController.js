@@ -224,30 +224,31 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     };
 
     const handleMenu = async () => {
-      if (processedMessage === 'ver_catalogo') {
-        session.state = STATES.VIEW_CATALOG;
-        await sessionManager.update(phone, session);
-        response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
-      } else if (processedMessage === 'buscar_productos') {
-        session.state = STATES.SEARCH_PRODUCTS;
-        response = { text: '🔍 Escribe el nombre o descripción del producto que buscas en DOMIPETS:', buttons: addBackButton([]) };
-      } else if (processedMessage === 'hablar_agente') {
-        session.state = STATES.SUPPORT;
-        await sessionManager.update(phone, session);
-        await handleSupport(); // Llama directamente a handleSupport
-        return; // Evita que siga al caso por defecto
-      } else if (processedMessage === 'estado_pedido') {
-        session.state = STATES.SUPPORT;
-        session.supportAction = 'order_status';
-        await sessionManager.update(phone, session);
-        response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
-      } else {
-        response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
-      }
-      if (response) await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-    };
+  if (processedMessage === 'ver_catalogo') {
+    session.state = STATES.VIEW_CATALOG;
+    await sessionManager.update(phone, session); // Asegura la actualización
+    response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+  } else if (processedMessage === 'buscar_productos') {
+    session.state = STATES.SEARCH_PRODUCTS;
+    await sessionManager.update(phone, session); // Asegura la actualización
+    response = { text: '🔍 Escribe el nombre o descripción del producto que buscas en DOMIPETS:', buttons: addBackButton([]) };
+  } else if (processedMessage === 'hablar_agente') {
+    session.state = STATES.SUPPORT;
+    await sessionManager.update(phone, session); // Asegura la actualización
+    await handleSupport(); // Llama directamente a handleSupport
+    return; // Evita que siga al caso por defecto
+  } else if (processedMessage === 'estado_pedido') {
+    session.state = STATES.SUPPORT;
+    session.supportAction = 'order_status';
+    await sessionManager.update(phone, session); // Asegura la actualización
+    response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
+  } else if (processedMessage === 'reiniciar') {
+    response = await handleReset(phone);
+  } else {
+    response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
+  }
+  if (response) await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+};
 
     const handleViewCatalog = async () => {
       if (processedMessage === 'open_catalog') {
