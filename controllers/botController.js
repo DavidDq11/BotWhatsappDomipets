@@ -233,10 +233,13 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         response = { text: '🔍 Escribe el nombre o descripción del producto que buscas en DOMIPETS:', buttons: addBackButton([]) };
       } else if (processedMessage === 'hablar_agente') {
         session.state = STATES.SUPPORT;
-        response = { text: '💬 ¿En qué puede ayudarte el equipo de DOMIPETS?', buttons: BUTTONS.SUPPORT };
+        await sessionManager.update(phone, session);
+        await handleSupport(); // Llama directamente a handleSupport
+        return; // Evita que siga al caso por defecto
       } else if (processedMessage === 'estado_pedido') {
         session.state = STATES.SUPPORT;
         session.supportAction = 'order_status';
+        await sessionManager.update(phone, session);
         response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
       } else if (processedMessage === 'reiniciar') {
         response = await handleReset(phone);
@@ -362,7 +365,6 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const pool = await getPool();
         await pool.query('INSERT INTO support_requests (phone, message, created_at, status) VALUES ($1, $2, $3, $4)', [phone, userMessage, new Date(), 'pending']);
         
-        // Notificación al administrador
         if (process.env.ADMIN_PHONE_NUMBER) {
           await sendWhatsAppMessage(
             process.env.ADMIN_PHONE_NUMBER,
