@@ -414,20 +414,30 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
-    const handleSearchProducts = async () => {
-      if (processedMessage === 'volver') {
-        session.state = STATES.MENU;
-        response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
-      } else {
-        const searchTerm = userMessage.trim().toLowerCase();
+    // botController.js (fragmento relevante)
+const handleSearchProducts = async () => {
+  if (processedMessage === 'volver') {
+    session.state = STATES.MENU;
+    response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
+  } else {
+    const searchTerm = userMessage ? userMessage.trim().toLowerCase() : '';
+    if (!searchTerm) {
+      response = { 
+        text: '🔍 Por favor, escribe un término de búsqueda (ej. "alimento" o "arena").', 
+        buttons: addBackButton([]) 
+      };
+    } else {
+      console.log(`Searching for: ${searchTerm}`); // Depuración
+      try {
         const products = await productService.searchProducts(searchTerm, null);
+        console.log(`Found ${products.length} products`); // Depuración
         if (!products.length) {
           response = { 
             text: `😿 No encontramos "${searchTerm}" en DOMIPETS. ¡Intenta otra búsqueda o visita el catálogo! 🛍️`,
             buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }])
           };
         } else {
-          session.state = STATES.VIEW_CATALOG;
+          session.state = STATES.VIEW_CATALOG; // Cambia a VIEW_CATALOG para mostrar resultados
           session.catalog = { offset: 0, searchTerm, products };
           await sessionManager.update(phone, session);
           const visibleProducts = products.slice(0, 3).map((p, index) => `${index + 1}. ${p.title} - $${p.price}`).join('\n');
@@ -436,9 +446,17 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             buttons: addBackButton([])
           };
         }
+      } catch (error) {
+        console.error('Error in productService.searchProducts:', error);
+        response = { 
+          text: `😿 Ocurrió un error al buscar "${searchTerm}" en DOMIPETS. Intenta de nuevo o escribe "volver".`,
+          buttons: addBackButton([])
+        };
       }
-      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-    };
+    }
+  }
+  await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+};
 
     const handleReset = async (phone) => {
       await sessionManager.reset(phone);
