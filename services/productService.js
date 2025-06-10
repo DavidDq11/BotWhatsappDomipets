@@ -31,26 +31,10 @@ class ProductService {
           },
         }
       );
-      console.log(`Raw API response for catalog with animalCategory ${animalCategory}:`, response.data); // Logging detallado
-      let products = response.data.data || [];
+      console.log(`Raw API response for catalog:`, response.data); // Logging de la respuesta cruda
+      const products = response.data.data || [];
 
-      // Filtrar basándose en el nombre si no hay categoría explícita
-      if (animalCategory) {
-        products = products.filter(product => {
-          const nameMatch = product.name && (
-            product.name.toLowerCase().includes('perro') || 
-            product.name.toLowerCase().includes('cachorro') || 
-            (animalCategory.toLowerCase() === 'dog')
-          ) || (
-            product.name.toLowerCase().includes('gato') || 
-            product.name.toLowerCase().includes('cat') || 
-            (animalCategory.toLowerCase() === 'cat')
-          );
-          return nameMatch || !animalCategory; // Si no hay coincidencia, incluir todos
-        });
-      }
-
-      const filteredProducts = products.map(product => ({
+      const mappedProducts = products.map(product => ({
         id: product.id,
         title: product.name,
         description: product.description || 'Sin descripción',
@@ -61,8 +45,8 @@ class ProductService {
         stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
         image_url: product.image_url || null,
       }));
-      console.log(`Filtered products for ${animalCategory}:`, filteredProducts); // Logging de productos filtrados
-      return filteredProducts;
+      console.log(`Mapped products:`, mappedProducts); // Logging de productos mapeados
+      return mappedProducts;
     } catch (error) {
       console.error('Error al obtener productos del catálogo:', error.response?.data || error.message);
       return [];
