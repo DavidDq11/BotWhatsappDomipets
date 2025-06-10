@@ -1,3 +1,4 @@
+// productService.js
 const { getPool } = require('../config/db');
 const axios = require('axios');
 
@@ -31,7 +32,7 @@ class ProductService {
           },
         }
       );
-      console.log(`Raw API response for catalog:`, response.data); // Logging de la respuesta cruda
+      console.log(`Raw API response for catalog:`, response.data);
       const products = response.data.data || [];
 
       const mappedProducts = products.map(product => ({
@@ -39,13 +40,13 @@ class ProductService {
         title: product.name,
         description: product.description || 'Sin descripción',
         category: product.category || 'Otros',
-        price: product.price || 'No disponible',
+        price: Number(product.price.replace(/[^0-9.-]+/g, '')) || 0,
         sizes: ['Única'],
         sizeDetails: [{ size: 'Única', price: Number(product.price.replace(/[^0-9.-]+/g, '')) || 0, stock_quantity: product.availability === 'in stock' ? 10 : 0 }],
         stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
         image_url: product.image_url || null,
       }));
-      console.log(`Mapped products:`, mappedProducts); // Logging de productos mapeados
+      console.log(`Mapped products:`, mappedProducts);
       return mappedProducts;
     } catch (error) {
       console.error('Error al obtener productos del catálogo:', error.response?.data || error.message);
@@ -107,9 +108,11 @@ class ProductService {
     try {
       const products = await this.getCatalogProducts(animalCategory);
       return products.filter(p =>
-        p.title.toLowerCase().includes(searchTerm) ||
-        p.description.toLowerCase().includes(searchTerm) ||
-        p.category.toLowerCase().includes(searchTerm)
+        [p.title, p.description, p.category].some(field =>
+          field?.toLowerCase().includes(searchTerm)
+        )
+      ).sort((a, b) => 
+        (b.title.toLowerCase().includes(searchTerm) ? 1 : 0) - (a.title.toLowerCase().includes(searchTerm) ? 1 : 0)
       ).slice(0, 10);
     } catch (error) {
       console.error(`Error searching products for ${searchTerm}:`, error.stack);

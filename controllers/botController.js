@@ -1,3 +1,4 @@
+// botController.js
 const axios = require('axios');
 const productService = require('../services/productService');
 const sessionManager = require('../utils/sessionManager');
@@ -340,24 +341,44 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       if (processedMessage === 'preguntas_frecuentes') {
         const pool = await getPool();
         const faqs = await pool.query('SELECT question, answer FROM faqs LIMIT 5');
-        const faqText = faqs.rows.map(faq => `❓ ${faq.question}\n${faq.answer}`).join('\n\n');
-        response = { text: `📚 Preguntas frecuentes de DOMIPETS:\n${faqText || 'No hay FAQs disponibles.'}`, buttons: BUTTONS.SUPPORT };
+        if (faqs.rows.length > 0) {
+          const faqList = faqs.rows.map((faq, index) => `${index + 1}. ${faq.question}`).join('\n');
+          response = { 
+            text: `📚 Preguntas frecuentes de DOMIPETS:\n${faqList}\nEscribe el número de la pregunta para ver la respuesta o "volver" para regresar.`,
+            buttons: BUTTONS.SUPPORT
+          };
+          session.supportAction = 'view_faq';
+          session.faqs = faqs.rows;
+        } else {
+          response = { 
+            text: '📚 No hay FAQs disponibles en este momento. ¡Contacta a un asesor! 🐾',
+            buttons: BUTTONS.SUPPORT
+          };
+        }
       } else if (processedMessage === 'contactar_agente') {
         session.supportAction = 'contact_agent';
         response = { text: '💬 Escribe tu consulta y el equipo de DOMIPETS te ayudará pronto. 🐾', buttons: addBackButton([]) };
-      } else if (processedMessage === 'estado_pedido') {
-        session.supportAction = 'order_status';
-        response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
-      } else if (processedMessage === 'volver') {
-        session.state = STATES.MENU;
-        session.supportAction = null;
-        response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
       } else if (session.supportAction === 'contact_agent') {
         const pool = await getPool();
         await pool.query('INSERT INTO support_requests (phone, message, created_at, status) VALUES ($1, $2, $3, $4)', [phone, userMessage, new Date(), 'pending']);
-        response = { text: `✅ Mensaje enviado a DOMIPETS: "${userMessage}". ¡Te contactaremos pronto! 🐾`, buttons: BUTTONS.MENU };
+        
+        // Notificación al administrador
+        if (process.env.ADMIN_PHONE_NUMBER) {
+          await sendWhatsAppMessage(
+            process.env.ADMIN_PHONE_NUMBER,
+            `🚨 Nueva solicitud de soporte de ${phone}:\n"${userMessage}"\nPor favor, responde pronto.`
+          );
+        }
+        
+        response = { 
+          text: `✅ Mensaje enviado a DOMIPETS: "${userMessage}". ¡Te contactaremos pronto! 🐾`,
+          buttons: BUTTONS.MENU
+        };
         session.state = STATES.MENU;
         session.supportAction = null;
+      } else if (processedMessage === 'estado_pedido') {
+        session.supportAction = 'order_status';
+        response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
       } else if (session.supportAction === 'order_status') {
         const pool = await getPool();
         const order = await pool.query('SELECT status, total FROM orders WHERE phone = $1 AND id = $2', [phone, processedMessage]);
@@ -366,6 +387,24 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
           : { text: '🚚 No encontramos ese pedido. Verifica el número o escribe "volver".', buttons: addBackButton([]) };
         session.state = STATES.MENU;
         session.supportAction = null;
+      } else if (session.supportAction === 'view_faq' && !isNaN(parseInt(processedMessage))) {
+        const index = parseInt(processedMessage) - 1;
+        if (session.faqs && session.faqs[index]) {
+          response = { 
+            text: `❓ ${session.faqs[index].question}\n${session.faqs[index].answer}\nEscribe otro número o "volver" para regresar.`,
+            buttons: addBackButton([])
+          };
+        } else {
+          response = { 
+            text: '😿 Número inválido. Elige un número de la lista o escribe "volver".',
+            buttons: addBackButton([])
+          };
+        }
+        session.supportAction = 'view_faq';
+      } else if (processedMessage === 'volver') {
+        session.state = STATES.MENU;
+        session.supportAction = null;
+        response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
       } else {
         response = { text: '💬 ¿En qué puede ayudarte el equipo de DOMIPETS?', buttons: BUTTONS.SUPPORT };
       }
@@ -381,12 +420,19 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const searchTerm = userMessage.trim().toLowerCase();
         const products = await productService.searchProducts(searchTerm, null);
         if (!products.length) {
-          response = { text: `😿 No encontramos "${searchTerm}" en DOMIPETS. ¡Intenta otra búsqueda!`, buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }]) };
+          response = { 
+            text: `😿 No encontramos "${searchTerm}" en DOMIPETS. ¡Intenta otra búsqueda o visita el catálogo! 🛍️`,
+            buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }])
+          };
         } else {
           session.state = STATES.VIEW_CATALOG;
-          session.catalog.offset = 0;
+          session.catalog = { offset: 0, searchTerm, products };
           await sessionManager.update(phone, session);
-          response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+          const visibleProducts = products.slice(0, 3).map((p, index) => `${index + 1}. ${p.title} - $${p.price}`).join('\n');
+          response = { 
+            text: `🔍 Resultados para "${searchTerm}":\n${visibleProducts}\nEscribe un número (1-3) para seleccionar o "siguiente" para más.`,
+            buttons: addBackButton([])
+          };
         }
       }
       await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
