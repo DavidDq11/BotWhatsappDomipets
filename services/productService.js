@@ -25,34 +25,41 @@ class ProductService {
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           params: {
-            fields: 'id,name,description,price,availability,category',
+            fields: 'id,name,description,price,availability,category,image_url',
             limit,
             offset,
           },
         }
       );
-      return response.data.data
-        .filter(product => {
+      console.log(`Raw API response for catalog:`, response.data); // Logging para depuración
+      let products = response.data.data || [];
+
+      // Filtrar solo si animalCategory está definido y hay coincidencias
+      if (animalCategory) {
+        products = products.filter(product => {
           const categoryMatch = product.category && (
             product.category.toLowerCase().includes(animalCategory.toLowerCase()) ||
-            animalCategory.toLowerCase() === 'dog' && product.category.toLowerCase().includes('perro') ||
-            animalCategory.toLowerCase() === 'cat' && product.category.toLowerCase().includes('gato')
+            (animalCategory.toLowerCase() === 'dog' && product.name.toLowerCase().includes('perro')) ||
+            (animalCategory.toLowerCase() === 'cat' && product.name.toLowerCase().includes('gato'))
           );
-          return categoryMatch;
-        })
-        .map(product => ({
-          id: product.id,
-          title: product.name,
-          description: product.description || 'Sin descripción',
-          category: product.category || 'Otros',
-          price: product.price || 'No disponible',
-          sizes: ['Única'],
-          sizeDetails: [{ size: 'Única', price: product.price || 0, stock_quantity: product.availability === 'in stock' ? 10 : 0 }],
-          stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
-        }));
+          return categoryMatch || !animalCategory; // Si no hay coincidencia, incluir todos
+        });
+      }
+
+      return products.map(product => ({
+        id: product.id,
+        title: product.name,
+        description: product.description || 'Sin descripción',
+        category: product.category || 'Otros',
+        price: product.price || 'No disponible',
+        sizes: ['Única'],
+        sizeDetails: [{ size: 'Única', price: Number(product.price.replace(/[^0-9.-]+/g, '')) || 0, stock_quantity: product.availability === 'in stock' ? 10 : 0 }],
+        stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
+        image_url: product.image_url || null,
+      }));
     } catch (error) {
-      console.error('Error al obtener productos del catálogo:', error);
-      throw error;
+      console.error('Error al obtener productos del catálogo:', error.response?.data || error.message);
+      return [];
     }
   }
 
@@ -79,7 +86,6 @@ class ProductService {
 
   static async getProductById(productId) {
     try {
-      const catalogId = process.env.CATALOG_ID;
       const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
       const response = await axios.get(
         `https://graph.facebook.com/v22.0/${productId}`,
@@ -94,10 +100,10 @@ class ProductService {
         title: p.name,
         description: p.description || 'Sin descripción',
         category: p.category || 'Otros',
-        price: Number(p.price) || 0,
-        special_price: Number(p.price) || 0,
+        price: Number(p.price.replace(/[^0-9.-]+/g, '')) || 0,
+        special_price: Number(p.price.replace(/[^0-9.-]+/g, '')) || 0,
         sizes: ['Única'],
-        sizeDetails: [{ size: 'Única', price: Number(p.price) || 0, stock_quantity: p.availability === 'in stock' ? 10 : 0 }],
+        sizeDetails: [{ size: 'Única', price: Number(p.price.replace(/[^0-9.-]+/g, '')) || 0, stock_quantity: p.availability === 'in stock' ? 10 : 0 }],
         stock: p.availability === 'in stock' ? 'In stock' : 'Out of stock',
         image_url: p.image_url || null,
       };
