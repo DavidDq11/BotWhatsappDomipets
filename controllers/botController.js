@@ -186,7 +186,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
   }
 
   session.cart = session.cart || [];
-  session.catalog = session.catalog || { offset: 0, animal: null };
+  session.catalog = session.catalog || { offset: 0, animal: session.catalog?.animal || null };
   session.errorCount = session.errorCount || 0;
 
   let processedMessage = (userMessage || '').trim().toLowerCase();
@@ -258,25 +258,29 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       if (processedMessage === 'ver_catalogo') {
         if (!session.catalog.animal) {
           session.state = STATES.SELECT_PET;
-          response = { text: '🐾 ¿Es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
+          response = { text: '🐾 ¿Es para tu perro o gato? Selecciona una opción para ver el catálogo.', buttons: BUTTONS.PET_TYPES };
         } else {
           session.state = STATES.VIEW_CATALOG;
           session.catalog.offset = 0;
           await sessionManager.update(phone, session);
           const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
-          response = {
-            text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()] || 'mascota'}:`,
-            list: {
-              sections: [{
-                title: 'Todos los productos',
-                rows: products.map(p => ({
-                  id: `prod_${p.id}`,
-                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
-                })),
-              }],
-            },
-            buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
-          };
+          if (!products || products.length === 0) {
+            response = { text: '😿 ¡No hay productos disponibles en DOMIPETS para tu mascota! Intenta más tarde.', buttons: BUTTONS.MENU };
+          } else {
+            response = {
+              text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()] || 'mascota'}:`,
+              list: {
+                sections: [{
+                  title: 'Todos los productos',
+                  rows: products.map(p => ({
+                    id: `prod_${p.id}`,
+                    title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                  })),
+                }],
+              },
+              buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+            };
+          }
         }
       } else if (processedMessage === 'buscar_productos') {
         session.state = STATES.SEARCH_PRODUCTS;
@@ -303,21 +307,25 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         session.catalog.offset = 0;
         await sessionManager.update(phone, session);
         const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
-        response = {
-          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
-          list: {
-            sections: [{
-              title: 'Todos los productos',
-              rows: products.map(p => ({
-                id: `prod_${p.id}`,
-                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
-              })),
-            }],
-          },
-          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
-        };
+        if (!products || products.length === 0) {
+          response = { text: '😿 ¡No hay productos disponibles en DOMIPETS para tu mascota! Intenta más tarde.', buttons: BUTTONS.MENU };
+        } else {
+          response = {
+            text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
+            list: {
+              sections: [{
+                title: 'Todos los productos',
+                rows: products.map(p => ({
+                  id: `prod_${p.id}`,
+                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                })),
+              }],
+            },
+            buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+          };
+        }
       } else {
-        response = { text: '🐾 ¿Es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
+        response = { text: '🐾 ¿Es para tu perro o gato? Selecciona una opción para ver el catálogo.', buttons: BUTTONS.PET_TYPES };
       }
       await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
