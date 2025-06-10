@@ -31,22 +31,26 @@ class ProductService {
           },
         }
       );
-      console.log(`Raw API response for catalog:`, response.data); // Logging para depuración
+      console.log(`Raw API response for catalog with animalCategory ${animalCategory}:`, response.data); // Logging detallado
       let products = response.data.data || [];
 
-      // Filtrar solo si animalCategory está definido y hay coincidencias
+      // Filtrar basándose en el nombre si no hay categoría explícita
       if (animalCategory) {
         products = products.filter(product => {
-          const categoryMatch = product.category && (
-            product.category.toLowerCase().includes(animalCategory.toLowerCase()) ||
-            (animalCategory.toLowerCase() === 'dog' && product.name.toLowerCase().includes('perro')) ||
-            (animalCategory.toLowerCase() === 'cat' && product.name.toLowerCase().includes('gato'))
+          const nameMatch = product.name && (
+            product.name.toLowerCase().includes('perro') || 
+            product.name.toLowerCase().includes('cachorro') || 
+            (animalCategory.toLowerCase() === 'dog')
+          ) || (
+            product.name.toLowerCase().includes('gato') || 
+            product.name.toLowerCase().includes('cat') || 
+            (animalCategory.toLowerCase() === 'cat')
           );
-          return categoryMatch || !animalCategory; // Si no hay coincidencia, incluir todos
+          return nameMatch || !animalCategory; // Si no hay coincidencia, incluir todos
         });
       }
 
-      return products.map(product => ({
+      const filteredProducts = products.map(product => ({
         id: product.id,
         title: product.name,
         description: product.description || 'Sin descripción',
@@ -57,6 +61,8 @@ class ProductService {
         stock: product.availability === 'in stock' ? 'In stock' : 'Out of stock',
         image_url: product.image_url || null,
       }));
+      console.log(`Filtered products for ${animalCategory}:`, filteredProducts); // Logging de productos filtrados
+      return filteredProducts;
     } catch (error) {
       console.error('Error al obtener productos del catálogo:', error.response?.data || error.message);
       return [];
