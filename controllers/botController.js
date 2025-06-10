@@ -12,19 +12,18 @@ const STATES = {
   INIT: 'INIT',
   MENU: 'MENU',
   SELECT_PET: 'SELECT_PET',
-  SELECT_CATEGORY: 'SELECT_CATEGORY',
+  VIEW_CATALOG: 'VIEW_CATALOG',
   SELECT_PRODUCT: 'SELECT_PRODUCT',
-  SELECT_SIZE: 'SELECT_SIZE',
   ADD_TO_CART: 'ADD_TO_CART',
   VIEW_CART: 'VIEW_CART',
+  CONFIRM_ORDER: 'CONFIRM_ORDER',
   SUPPORT: 'SUPPORT',
   SEARCH_PRODUCTS: 'SEARCH_PRODUCTS',
-  CONFIRM_ORDER: 'CONFIRM_ORDER',
 };
 
 const BUTTONS = {
   MENU: [
-    { id: 'ver_catalogo', title: '🛍️ Ver productos' },
+    { id: 'ver_catalogo', title: '🛍️ Ver catálogo' },
     { id: 'buscar_productos', title: '🔍 Buscar' },
     { id: 'hablar_agente', title: '💬 Ayuda DOMIPETS' },
     { id: 'estado_pedido', title: '🚚 Mi pedido' },
@@ -72,10 +71,10 @@ const sendWhatsAppMessage = async (to, text) => {
         },
       }
     );
-    console.log(`Message sent to ${to}:`, response.data);
+    console.log(`Text message sent to ${to}:`, response.data);
     return response.data;
   } catch (error) {
-    console.error('Error sending WhatsApp message:', error.response?.data || error.message);
+    console.error('Error sending text message:', error.response?.data || error.message);
     throw error;
   }
 };
@@ -109,11 +108,11 @@ const sendWhatsAppMessageWithButtons = async (to, text, buttons) => {
         },
       }
     );
-    console.log(`Message with buttons sent to ${to}:`, response.data);
+    console.log(`Button message sent to ${to}:`, response.data);
     return response.data;
   } catch (error) {
-    console.error('Error sending WhatsApp message with buttons:', error.response?.data || error.message);
-    return await sendWhatsAppMessage(to, `${text}\n(No se pudieron mostrar botones)`);
+    console.error('Error sending button message:', error.response?.data || error.message);
+    await sendWhatsAppMessage(to, `${text}\n(No se pudieron mostrar botones)`);
   }
 };
 
@@ -145,9 +144,9 @@ const sendWhatsAppMessageWithList = async (to, text, list, buttons = []) => {
       payload.interactive.action.buttons = buttons.map(btn => ({
         type: 'reply',
         reply: { id: btn.id, title: btn.title.slice(0, 20) },
-      }));
+      })).slice(0, 3);
     }
-    console.log(`Sending WhatsApp list payload to ${to}:`, JSON.stringify(payload, null, 2));
+    console.log(`List payload sent to ${to}:`, JSON.stringify(payload, null, 2));
     const response = await axios.post(
       `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       payload,
@@ -158,11 +157,11 @@ const sendWhatsAppMessageWithList = async (to, text, list, buttons = []) => {
         },
       }
     );
-    console.log(`Message with list sent to ${to}:`, response.data);
+    console.log(`List message sent to ${to}:`, response.data);
     return response.data;
   } catch (error) {
-    console.error('Error sending WhatsApp message with list:', error.response?.data || error.message);
-    return await sendWhatsAppMessage(to, `${text}\n(No se pudo mostrar la lista)`);
+    console.error('Error sending list message:', error.response?.data || error.message);
+    await sendWhatsAppMessage(to, `${text}\n(No se pudo mostrar la lista)`);
   }
 };
 
@@ -187,7 +186,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
   }
 
   session.cart = session.cart || [];
-  session.catalog = session.catalog || { offset: 0, category: null, animal: null };
+  session.catalog = session.catalog || { offset: 0, animal: null };
   session.errorCount = session.errorCount || 0;
 
   let processedMessage = (userMessage || '').trim().toLowerCase();
@@ -198,9 +197,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     } else if (interactiveMessage.type === 'list_reply') {
       processedMessage = interactiveMessage.list_reply.id;
     }
-  }
-
-  if (!interactiveMessage) {
+  } else {
     if (processedMessage.includes('catalogo') || processedMessage.includes('productos')) {
       processedMessage = 'ver_catalogo';
     } else if (processedMessage.includes('buscar') || processedMessage.includes('encontrar')) {
@@ -214,11 +211,11 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     } else if (processedMessage.includes('reiniciar') || processedMessage.includes('inicio')) {
       processedMessage = 'reiniciar';
     } else if (processedMessage.includes('perro') || processedMessage.includes('perros')) {
-      session.preferredAnimal = 'Dog';
+      session.catalog.animal = 'Dog';
       await sessionManager.update(phone, session);
       processedMessage = 'ver_catalogo';
     } else if (processedMessage.includes('gato') || processedMessage.includes('gatos')) {
-      session.preferredAnimal = 'Cat';
+      session.catalog.animal = 'Cat';
       await sessionManager.update(phone, session);
       processedMessage = 'ver_catalogo';
     }
@@ -230,11 +227,9 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
   try {
     if (
       processedMessage &&
-      !['ver_catalogo', 'buscar_productos', 'hablar_agente', 'estado_pedido', 'ver_carrito', 'finalizar_pedido', 'volver', 'reiniciar', 'next', 'prev', 'qty_1', 'qty_2', 'qty_5'].some(id => processedMessage.startsWith(id) || processedMessage === id) &&
-      !processedMessage.startsWith('cat_') &&
-      !processedMessage.startsWith('animal_') &&
+      !['ver_catalogo', 'buscar_productos', 'hablar_agente', 'estado_pedido', 'ver_carrito', 'finalizar_pedido', 'volver', 'reiniciar', 'next', 'prev', 'qty_1', 'qty_2', 'qty_5', 'confirm_order'].some(id => processedMessage.startsWith(id) || processedMessage === id) &&
       !processedMessage.startsWith('prod_') &&
-      !processedMessage.startsWith('size_') &&
+      !processedMessage.startsWith('animal_') &&
       isNaN(parseInt(processedMessage))
     ) {
       session.errorCount += 1;
@@ -242,10 +237,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       if (session.errorCount >= 3) {
         session.state = STATES.MENU;
         session.errorCount = 0;
-        response = { text: '😿 ¡Ups! Parece que te perdiste. En DOMIPETS te llevamos al inicio. 🐾 ¿Qué quieres hacer?', buttons: BUTTONS.MENU };
+        response = { text: '😿 ¡Ups! Parece que te perdiste. Volvemos al menú de DOMIPETS. 🐾 ¿Qué quieres hacer?', buttons: BUTTONS.MENU };
         await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         await sessionManager.update(phone, session);
-        return response;
+        return;
       }
     } else {
       session.errorCount = 0;
@@ -253,76 +248,27 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     }
 
     const handleInit = async () => {
-      session.state = STATES.SELECT_PET;
-      response = {
-        text: '🐾 ¡Bienvenid@ a DOMIPETS! Somos tu tienda favorita para consentir a tu mejor amigo. 😻 ¿Es para tu perro o gato?',
-        buttons: BUTTONS.PET_TYPES,
-      };
+      session.state = STATES.MENU;
+      response = { text: '🐾 ¡Bienvenid@ a DOMIPETS! Somos tu tienda favorita para consentir a tu peludo. 😻 ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
       await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       await sessionManager.update(phone, session);
     };
 
-    const handleSelectPet = async () => {
-      if (processedMessage.startsWith('animal_')) {
-        session.preferredAnimal = processedMessage.replace('animal_', '');
-        session.state = STATES.SELECT_CATEGORY;
-        await sessionManager.update(phone, session);
-        try {
-          const categories = await productService.getMainCategories(session.preferredAnimal);
-          if (!categories.length) {
-            response = {
-              text: `😿 ¡Vaya! No encontramos categorías para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS. ¡Intenta de nuevo o elige otro amigo peludo!`,
-              buttons: BUTTONS.PET_TYPES,
-            };
-            await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-          } else {
-            response = {
-              text: `🎉 ¡Perfecto! ¿Qué quieres para mimar a tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS?`,
-              list: {
-                sections: [{
-                  title: 'Categorías',
-                  rows: categories.map(cat => ({
-                    id: `cat_${cat}`,
-                    title: productService.MAIN_CATEGORIES_MAP[cat] || cat,
-                  })),
-                }],
-              },
-              buttons: BUTTONS.CATALOG,
-            };
-            await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-          }
-        } catch (error) {
-          console.error(`Error fetching categories for ${session.preferredAnimal}:`, error);
-          response = {
-            text: '😿 ¡Ups! Algo salió mal al cargar las categorías. En DOMIPETS estamos trabajando en ello. Intenta de nuevo.',
-            buttons: BUTTONS.PET_TYPES,
-          };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-        }
-      } else {
-        response = { text: '🐾 En DOMIPETS, queremos saber: ¿es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-      }
-    };
-
-    const handleSelectCategory = async () => {
+    const handleMenu = async () => {
       if (processedMessage === 'ver_catalogo') {
-        session.state = STATES.SELECT_PRODUCT;
-        session.catalog.offset = 0;
-        await sessionManager.update(phone, session);
-        const products = await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
-        if (!products.length) {
-          response = {
-            text: '😿 No encontramos productos en el catálogo. ¡Vuelve a intentarlo más tarde!',
-            buttons: BUTTONS.CATALOG,
-          };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+        if (!session.catalog.animal) {
+          session.state = STATES.SELECT_PET;
+          response = { text: '🐾 ¿Es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
         } else {
+          session.state = STATES.VIEW_CATALOG;
+          session.catalog.offset = 0;
+          await sessionManager.update(phone, session);
+          const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
           response = {
-            text: `🛍️ ¡Aquí tienes nuestro catálogo para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}! Elige un producto:`,
+            text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()] || 'mascota'}:`,
             list: {
               sections: [{
-                title: 'Productos DOMIPETS',
+                title: 'Todos los productos',
                 rows: products.map(p => ({
                   id: `prod_${p.id}`,
                   title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
@@ -331,67 +277,61 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             },
             buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
           };
-          await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
         }
-      } else if (processedMessage.startsWith('cat_')) {
-        session.catalog.category = processedMessage.replace('cat_', '');
-        session.state = STATES.SELECT_PRODUCT;
-        session.catalog.offset = 0;
-        await sessionManager.update(phone, session);
-        const products = await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset);
-        if (!products.length) {
-          response = {
-            text: `😿 No encontramos productos en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category} para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}. ¡Explora otras categorías en DOMIPETS!`,
-            buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver categorías' }]),
-          };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-        } else {
-          response = {
-            text: `🛍️ ¡Genial! Aquí tienes productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category}. Elige un producto o escribe 'volver' para regresar.`,
-            list: {
-              sections: [{
-                title: 'Productos DOMIPETS',
-                rows: products.map(p => ({
-                  id: `prod_${p.id}`,
-                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
-                })),
-              }],
-            },
-            buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
-          };
-          await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-        }
-      } else if (processedMessage === 'volver') {
-        session.state = STATES.SELECT_PET;
-        await sessionManager.update(phone, session);
-        response = { text: '🐾 En DOMIPETS, queremos saber: ¿es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-      } else if (processedMessage === 'ver_carrito') {
-        session.state = STATES.VIEW_CART;
-        await sessionManager.update(phone, session);
-        response = await handleCartView(phone, session);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+      } else if (processedMessage === 'buscar_productos') {
+        session.state = STATES.SEARCH_PRODUCTS;
+        response = { text: '🔍 Escribe el nombre o descripción del producto que buscas en DOMIPETS:', buttons: addBackButton([]) };
+      } else if (processedMessage === 'hablar_agente') {
+        session.state = STATES.SUPPORT;
+        response = { text: '💬 ¿En qué puede ayudarte el equipo de DOMIPETS?', buttons: BUTTONS.SUPPORT };
+      } else if (processedMessage === 'estado_pedido') {
+        session.state = STATES.SUPPORT;
+        session.supportAction = 'order_status';
+        response = { text: '🚚 Ingresa el número de tu pedido en DOMIPETS:', buttons: addBackButton([]) };
       } else if (processedMessage === 'reiniciar') {
         response = await handleReset(phone);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       } else {
-        response = { text: '🐕 Elige una categoría o escribe "volver" para regresar.', buttons: addBackButton([]) };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+        response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
       }
+      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
-    const handleSelectProduct = async () => {
+    const handleSelectPet = async () => {
+      if (processedMessage.startsWith('animal_')) {
+        session.catalog.animal = processedMessage.replace('animal_', '');
+        session.state = STATES.VIEW_CATALOG;
+        session.catalog.offset = 0;
+        await sessionManager.update(phone, session);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
+        response = {
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
+          list: {
+            sections: [{
+              title: 'Todos los productos',
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
+            }],
+          },
+          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+        };
+      } else {
+        response = { text: '🐾 ¿Es para tu perro o gato?', buttons: BUTTONS.PET_TYPES };
+      }
+      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+    };
+
+    const handleViewCatalog = async () => {
       if (processedMessage === 'next') {
         session.catalog.offset += 10;
         await sessionManager.update(phone, session);
-        const products = session.catalog.category
-          ? await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset)
-          : await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
         response = {
-          text: `🛍️ Más productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}:`,
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
           list: {
             sections: [{
-              title: 'Productos DOMIPETS',
+              title: 'Todos los productos',
               rows: products.map(p => ({
                 id: `prod_${p.id}`,
                 title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
@@ -402,18 +342,15 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             ? (session.catalog.offset > 0 ? [{ id: 'prev', title: 'Anterior' }, { id: 'next', title: 'Siguiente' }] : [{ id: 'next', title: 'Siguiente' }]).concat(BUTTONS.CATALOG)
             : (session.catalog.offset > 0 ? [{ id: 'prev', title: 'Anterior' }] : []).concat(BUTTONS.CATALOG),
         };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
       } else if (processedMessage === 'prev') {
         session.catalog.offset = Math.max(0, session.catalog.offset - 10);
         await sessionManager.update(phone, session);
-        const products = session.catalog.category
-          ? await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset)
-          : await productService.getCatalogProducts(session.preferredAnimal, session.catalog.offset);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
         response = {
-          text: `🛍️ Productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]}:`,
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
           list: {
             sections: [{
-              title: 'Productos DOMIPETS',
+              title: 'Todos los productos',
               rows: products.map(p => ({
                 id: `prod_${p.id}`,
                 title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
@@ -424,14 +361,15 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             ? [{ id: 'prev', title: 'Anterior' }, { id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG]
             : (session.catalog.offset > 0 ? [{ id: 'prev', title: 'Anterior' }] : []).concat(BUTTONS.CATALOG),
         };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
       } else if (processedMessage.startsWith('prod_')) {
         const productId = processedMessage.replace('prod_', '');
         const product = await productService.getProductById(productId);
         if (!product) {
           response = { text: '😿 ¡Ups! No encontramos ese producto en DOMIPETS. Elige otro o escribe "volver".', buttons: addBackButton([]) };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         } else {
+          session.state = STATES.SELECT_PRODUCT;
+          session.selectedProduct = product;
+          await sessionManager.update(phone, session);
           if (product.image_url) {
             await axios.post(
               `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
@@ -449,13 +387,9 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               }
             );
           }
-          session.state = STATES.ADD_TO_CART;
-          session.selectedProduct = product;
-          session.selectedSize = product.sizes[0] || 'Única';
-          await sessionManager.update(phone, session);
-          const stockAlert = product.sizeDetails[0]?.stock_quantity <= 5 ? '⚠️ ¡Quedan pocas unidades!' : '';
+          const stockAlert = product.sizeDetails[0].stock_quantity <= 5 ? '⚠️ ¡Quedan pocas unidades!' : '';
           response = {
-            text: `📦 ${product.title} (${session.selectedSize})\n${product.description}\n💰 Precio: $${product.sizeDetails[0]?.price || product.price}\n${stockAlert}\n¿Cuántas unidades quieres para tu peludo?`,
+            text: `📦 ${product.title} (${product.sizes[0]})\n${product.description}\n💰 Precio: $${product.sizeDetails[0].price}\n${stockAlert}\n¿Cuántas unidades quieres?`,
             buttons: [
               { id: 'qty_1', title: '1' },
               { id: 'qty_2', title: '2' },
@@ -463,85 +397,35 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               ...addBackButton([]),
             ],
           };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         }
       } else if (processedMessage === 'volver') {
-        session.state = STATES.SELECT_CATEGORY;
+        session.state = session.catalog.animal ? STATES.VIEW_CATALOG : STATES.MENU;
         await sessionManager.update(phone, session);
-        const categories = await productService.getMainCategories(session.preferredAnimal);
-        response = {
-          text: `🎉 ¡Perfecto! ¿Qué quieres para mimar a tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS?`,
-          list: {
-            sections: [{
-              title: 'Categorías',
-              rows: categories.map(cat => ({
-                id: `cat_${cat}`,
-                title: productService.MAIN_CATEGORIES_MAP[cat] || cat,
-              })),
-            }],
-          },
-          buttons: BUTTONS.CATALOG,
-        };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-      } else {
-        response = { text: '🐕 Elige un producto o escribe "volver" para regresar.', buttons: addBackButton([]) };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-      }
-    };
-
-    const handleSelectSize = async () => {
-      if (processedMessage.startsWith('size_')) {
-        const sizeIndex = parseInt(processedMessage.replace('size_', ''), 10);
-        if (isNaN(sizeIndex) || sizeIndex >= session.selectedProduct.sizes.length) {
-          response = { text: '😿 ¡Talla no válida en DOMIPETS! Elige otra o escribe "volver".', buttons: addBackButton([]) };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+        if (session.catalog.animal) {
+          const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
+          response = {
+            text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
+            list: {
+              sections: [{
+                title: 'Todos los productos',
+                rows: products.map(p => ({
+                  id: `prod_${p.id}`,
+                  title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+                })),
+              }],
+            },
+            buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+          };
         } else {
-          session.selectedSize = session.selectedProduct.sizes[sizeIndex];
-          session.state = STATES.ADD_TO_CART;
-          await sessionManager.update(phone, session);
-          const stockAlert = session.selectedProduct.sizeDetails[sizeIndex].stock_quantity <= 5 ? '⚠️ ¡Quedan pocas unidades!' : '';
-          response = {
-            text: `📦 ${session.selectedProduct.title} (${session.selectedSize})\n${session.selectedProduct.description}\n💰 Precio: $${session.selectedProduct.sizeDetails[sizeIndex].price}\n${stockAlert}\n¿Cuántas unidades quieres para tu peludo?`,
-            buttons: [
-              { id: 'qty_1', title: '1' },
-              { id: 'qty_2', title: '2' },
-              { id: 'qty_5', title: '5' },
-              ...addBackButton([]),
-            ],
-          };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+          response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
         }
-      } else if (processedMessage === 'volver') {
-        session.state = STATES.SELECT_PRODUCT;
-        await sessionManager.update(phone, session);
-        const products = await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset);
-        response = {
-          text: `🛍️ ¡Genial! Aquí tienes productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category}. Elige un producto o escribe 'volver' para regresar.`,
-          list: {
-            sections: [{
-              title: 'Productos DOMIPETS',
-              rows: products.map(p => ({
-                id: `prod_${p.id}`,
-                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
-              })),
-            }],
-          },
-          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
-        };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       } else {
-        response = { text: '🐕 Elige una talla o escribe "volver" para regresar.', buttons: addBackButton([]) };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+        response = { text: '🛍️ Elige un producto o usa "siguiente/anterior" para navegar.', buttons: addBackButton([]) };
       }
+      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
-    const handleAddToCart = async () => {
+    const handleSelectProduct = async () => {
       let quantity;
       if (processedMessage === 'qty_1') quantity = 1;
       else if (processedMessage === 'qty_2') quantity = 2;
@@ -549,11 +433,11 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       else quantity = parseInt(processedMessage, 10);
 
       if (!isNaN(quantity) && quantity > 0) {
-        const sizeIndex = session.selectedProduct.sizes.indexOf(session.selectedSize);
+        const sizeIndex = session.selectedProduct.sizes.indexOf(session.selectedProduct.sizes[0]);
         const stock = session.selectedProduct.sizeDetails[sizeIndex].stock_quantity;
         if (quantity > stock) {
           response = {
-            text: `😿 Solo hay ${stock} unidades de ${session.selectedProduct.title} (${session.selectedSize}) en DOMIPETS. Elige otra cantidad o escribe "volver".`,
+            text: `😿 Solo hay ${stock} unidades de ${session.selectedProduct.title} en DOMIPETS. Elige otra cantidad.`,
             buttons: [
               { id: 'qty_1', title: '1' },
               { id: 'qty_2', title: '2' },
@@ -561,69 +445,30 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               ...addBackButton([]),
             ],
           };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         } else {
           session.cart.push({
             productId: session.selectedProduct.id,
             title: session.selectedProduct.title,
-            size: session.selectedSize,
+            size: session.selectedProduct.sizes[0],
             quantity,
             price: session.selectedProduct.sizeDetails[sizeIndex].price,
           });
-          session.state = STATES.VIEW_CART;
+          session.state = STATES.ADD_TO_CART;
           await sessionManager.update(phone, session);
-          let recommendationText = '';
-          let recommendedCategory = 'Accessories';
-          if (session.selectedProduct.category === 'Pet Food' || session.selectedProduct.category === 'Wet Food') {
-            recommendationText = '¡Mima a tu peludo con un comedero o juguete! 🐾';
-            recommendedCategory = 'Accessories';
-          } else if (session.selectedProduct.category === 'Litter') {
-            recommendationText = '¡Un rascador sería perfecto para tu gato! 😺';
-            recommendedCategory = 'Accessories';
-          } else if (session.selectedProduct.category === 'Accessories') {
-            recommendedCategory = 'Pet Treats';
-            recommendationText = '¡Consiente a tu peludo con un snack delicioso! 🍬';
-          } else {
-            recommendedCategory = 'Pet Treats';
-            recommendationText = '¡Mima a tu peludo con un snack! 🍬';
-          }
-          const recommendedProducts = await productService.getProducts(
-            recommendedCategory,
-            session.preferredAnimal,
-            null,
-            0,
-            3
-          );
-          if (recommendedProducts.length) {
-            recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}`).join('\n')}`;
-          } else {
-            recommendationText += `\n😿 No tenemos ${recommendedCategory.toLowerCase()} ahora, pero explora más productos en DOMIPETS.`;
-          }
           response = {
-            text: `🎉 ¡Añadido ${quantity} x ${session.selectedProduct.title} (${session.selectedSize}) al carrito de DOMIPETS!\n${recommendationText}\n¿Listo para seguir comprando o finalizar?`,
-            buttons: BUTTONS.CART,
+            text: `🎉 ¡Añadido ${quantity} x ${session.selectedProduct.title} al carrito de DOMIPETS!\n¿Quieres seguir comprando o ver el carrito?`,
+            buttons: BUTTONS.CATALOG,
           };
-          await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         }
-      } else if (processedMessage === 'ver_carrito') {
-        session.state = STATES.VIEW_CART;
-        await sessionManager.update(phone, session);
-        response = await handleCartView(phone, session);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
-      } else if (processedMessage === 'finalizar_pedido') {
-        session.state = STATES.VIEW_CART;
-        await sessionManager.update(phone, session);
-        response = await handleCartView(phone, session);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       } else if (processedMessage === 'volver') {
-        session.state = STATES.SELECT_PRODUCT;
+        session.state = STATES.VIEW_CATALOG;
         await sessionManager.update(phone, session);
-        const products = await productService.getProducts(session.catalog.category, session.preferredAnimal, null, session.catalog.offset);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
         response = {
-          text: `🛍️ ¡Genial! Aquí tienes productos para tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en ${productService.MAIN_CATEGORIES_MAP[session.catalog.category] || session.catalog.category}. Elige un producto o escribe 'volver' para regresar.`,
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
           list: {
             sections: [{
-              title: 'Productos DOMIPETS',
+              title: 'Todos los productos',
               rows: products.map(p => ({
                 id: `prod_${p.id}`,
                 title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
@@ -632,10 +477,6 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
           },
           buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
         };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       } else {
         response = {
           text: '🐾 Ingresa un número (ej. 2) o selecciona una cantidad para tu peludo.',
@@ -646,67 +487,84 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             ...addBackButton([]),
           ],
         };
-        await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
       }
+      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+    };
+
+    const handleAddToCart = async () => {
+      if (processedMessage === 'ver_carrito') {
+        session.state = STATES.VIEW_CART;
+        await sessionManager.update(phone, session);
+        response = await handleCartView(phone, session);
+      } else if (processedMessage === 'ver_catalogo') {
+        session.state = STATES.VIEW_CATALOG;
+        session.catalog.offset = 0;
+        await sessionManager.update(phone, session);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
+        response = {
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
+          list: {
+            sections: [{
+              title: 'Todos los productos',
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
+            }],
+          },
+          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+        };
+      } else if (processedMessage === 'volver') {
+        session.state = STATES.VIEW_CATALOG;
+        await sessionManager.update(phone, session);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
+        response = {
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
+          list: {
+            sections: [{
+              title: 'Todos los productos',
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
+              })),
+            }],
+          },
+          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
+        };
+      } else {
+        response = { text: '🐾 ¿Quieres ver el carrito o seguir comprando?', buttons: BUTTONS.CATALOG };
+      }
+      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
     const handleCartView = async (phone, session) => {
-      if (session.cart.length === 0) {
-        return { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! 😿 Añade algo para consentir a tu peludo. 🐶', buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver productos' }]) };
+      if (!session.cart || session.cart.length === 0) {
+        return { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! 😿 Añade productos para tu peludo.', buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }]) };
       }
       const cartItems = session.cart.map(item => `${item.quantity} x ${item.title} (${item.size}) - $${(item.price * item.quantity).toFixed(2)}`).join('\n');
       const total = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
-      let recommendationText = '';
-      const hasFood = session.cart.some(item => ['Pet Food', 'Wet Food'].includes(item.category));
-      const hasLitter = session.cart.some(item => item.category === 'Litter');
-      const hasAccessories = session.cart.some(item => item.category === 'Accessories');
-      let recommendedCategory = 'Pet Treats';
-      if (hasFood) {
-        recommendationText = '¡Un comedero o juguete sería perfecto para tu peludo! 🐾';
-        recommendedCategory = 'Accessories';
-      } else if (hasLitter) {
-        recommendationText = '¡Un rascador sería ideal para tu gato! 😺';
-        recommendedCategory = 'Accessories';
-      } else if (hasAccessories) {
-        recommendationText = '¡Consiente a tu peludo con un snack delicioso! 🍬';
-        recommendedCategory = 'Pet Treats';
-      } else {
-        recommendationText = '¡Mima a tu peludo con un snack! 🍬';
-      }
-      const recommendedProducts = await productService.getProducts(
-        recommendedCategory,
-        session.preferredAnimal,
-        null,
-        0,
-        3
-      );
-      if (recommendedProducts.length) {
-        recommendationText += `\nRecomendaciones DOMIPETS:\n${recommendedProducts.map(p => `${p.title} - $${p.price}`).join('\n')}`;
-      } else {
-        recommendationText += `\n😿 No tenemos ${recommendedCategory.toLowerCase()} ahora, pero explora más productos en DOMIPETS.`;
-      }
       const pool = await getPool();
       await pool.query(
         'INSERT INTO user_interactions (phone, action, details, timestamp) VALUES ($1, $2, $3, $4)',
         [phone, 'view_cart', { items: session.cart, total }, new Date()]
       );
-      return { text: `🛒 Tu carrito en DOMIPETS:\n${cartItems}\n💰 Total: $${total}\n${recommendationText}\n¿Todo listo para confirmar? 🎉`, buttons: BUTTONS.CART };
+      return { text: `🛒 Tu carrito en DOMIPETS:\n${cartItems}\n💰 Total: $${total}\n¿Confirmas tu pedido?`, buttons: BUTTONS.CART };
     };
 
     const handleViewCart = async () => {
       if (processedMessage === 'finalizar_pedido') {
-        if (session.cart.length === 0) {
-          response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! 😿 Añade algo para consentir a tu peludo. 🐶', buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver productos' }]) };
+        if (!session.cart || session.cart.length === 0) {
+          response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! 😿 Añade productos para tu peludo.', buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }]) };
         } else {
           const cartItems = session.cart.map(item => `${item.quantity} x ${item.title} (${item.size}) - $${(item.price * item.quantity).toFixed(2)}`).join('\n');
           const total = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
           session.state = STATES.CONFIRM_ORDER;
           await sessionManager.update(phone, session);
           response = {
-            text: `📋 Revisa tu pedido en DOMIPETS:\n${cartItems}\n💰 Total: $${total} COP\n¿Todo correcto para tu peludo? 🎉`,
+            text: `📋 Confirma tu pedido en DOMIPETS:\n${cartItems}\n💰 Total: $${total} COP\n¿Todo correcto?`,
             buttons: [
               { id: 'confirm_order', title: '✅ Confirmar' },
-              { id: 'ver_carrito', title: '🛒 Editar carrito' },
+              { id: 'ver_carrito', title: '🛒 Editar' },
               ...addBackButton([]),
             ],
           };
@@ -715,55 +573,50 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const cartItems = session.cart.map(item => `${item.quantity} x ${item.title} (${item.size}) - $${(item.price * item.quantity).toFixed(2)}`).join('\n');
         const total = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
         const pool = await getPool();
-        await pool.query(
-          'INSERT INTO orders (phone, items, total, created_at, status) VALUES ($1, $2, $3, $4, $5)',
-          [phone, JSON.stringify(session.cart), total, new Date(), 'pending']
-        );
+        const result = await pool.query('INSERT INTO orders (phone, items, total, created_at, status) VALUES ($1, $2, $3, $4, $5) RETURNING id', [phone, JSON.stringify(session.cart), total, new Date(), 'pending']);
+        const orderId = result.rows[0].id;
         response = {
-          text: `🎉 ¡Pedido confirmado en DOMIPETS!\nResumen:\n${cartItems}\n💰 Total: $${total} COP\nEl equipo de DOMIPETS te contactará pronto para coordinar pago y entrega. 🐾`,
+          text: `🎉 ¡Pedido #${orderId} confirmado en DOMIPETS!\nResumen:\n${cartItems}\n💰 Total: $${total} COP\nEl equipo te contactará para pago y entrega. 🐾`,
           buttons: BUTTONS.MENU,
         };
         session.cart = [];
         session.state = STATES.MENU;
         await sessionManager.update(phone, session);
       } else if (processedMessage === 'ver_catalogo') {
-        session.state = STATES.SELECT_CATEGORY;
+        session.state = STATES.VIEW_CATALOG;
+        session.catalog.offset = 0;
         await sessionManager.update(phone, session);
-        const categories = await productService.getMainCategories(session.preferredAnimal);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
         response = {
-          text: `🎉 ¡Perfecto! ¿Qué quieres para mimar a tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS?`,
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
           list: {
             sections: [{
-              title: 'Categorías',
-              rows: categories.map(cat => ({
-                id: `cat_${cat}`,
-                title: productService.MAIN_CATEGORIES_MAP[cat] || cat,
+              title: 'Todos los productos',
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
               })),
             }],
           },
-          buttons: BUTTONS.CATALOG,
+          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
         };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
       } else if (processedMessage === 'volver') {
-        session.state = STATES.SELECT_CATEGORY;
+        session.state = STATES.VIEW_CATALOG;
         await sessionManager.update(phone, session);
-        const categories = await productService.getMainCategories(session.preferredAnimal);
+        const products = await productService.getCatalogProducts(session.catalog.animal, session.catalog.offset);
         response = {
-          text: `🎉 ¡Perfecto! ¿Qué quieres para mimar a tu ${productService.ANIMAL_CATEGORY_MAP[session.preferredAnimal.toLowerCase()]} en DOMIPETS?`,
+          text: `🛍️ Catálogo DOMIPETS para tu ${productService.ANIMAL_CATEGORY_MAP[session.catalog.animal.toLowerCase()]}:`,
           list: {
             sections: [{
-              title: 'Categorías',
-              rows: categories.map(cat => ({
-                id: `cat_${cat}`,
-                title: productService.MAIN_CATEGORIES_MAP[cat] || cat,
+              title: 'Todos los productos',
+              rows: products.map(p => ({
+                id: `prod_${p.id}`,
+                title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
               })),
             }],
           },
-          buttons: BUTTONS.CATALOG,
+          buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
         };
-        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
       } else {
         response = await handleCartView(phone, session);
       }
@@ -786,12 +639,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         session.state = STATES.MENU;
         session.supportAction = null;
         response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
       } else if (session.supportAction === 'contact_agent') {
         const pool = await getPool();
         await pool.query('INSERT INTO support_requests (phone, message, created_at, status) VALUES ($1, $2, $3, $4)', [phone, userMessage, new Date(), 'pending']);
-        response = { text: `✅ Mensaje enviado a DOMIPETS: "${userMessage}". ¡El equipo de DOMIPETS te contactará pronto! 🐾`, buttons: BUTTONS.MENU };
+        response = { text: `✅ Mensaje enviado a DOMIPETS: "${userMessage}". ¡Te contactaremos pronto! 🐾`, buttons: BUTTONS.MENU };
         session.state = STATES.MENU;
         session.supportAction = null;
       } else if (session.supportAction === 'order_status') {
@@ -799,7 +650,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const order = await pool.query('SELECT status, total FROM orders WHERE phone = $1 AND id = $2', [phone, processedMessage]);
         response = order.rows.length > 0
           ? { text: `📦 Pedido #${processedMessage} en DOMIPETS: ${order.rows[0].status}. Total: $${order.rows[0].total}.`, buttons: BUTTONS.MENU }
-          : { text: '🚚 No encontramos ese pedido en DOMIPETS. Verifica el número o escribe "volver".', buttons: addBackButton([]) };
+          : { text: '🚚 No encontramos ese pedido. Verifica el número o escribe "volver".', buttons: addBackButton([]) };
         session.state = STATES.MENU;
         session.supportAction = null;
       } else {
@@ -813,22 +664,20 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       if (processedMessage === 'volver') {
         session.state = STATES.MENU;
         response = { text: '🐾 ¡Volvemos al menú de DOMIPETS! ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
-      } else if (processedMessage === 'reiniciar') {
-        response = await handleReset(phone);
       } else {
         const searchTerm = userMessage.trim().toLowerCase();
-        const products = await productService.searchProducts(searchTerm, session.preferredAnimal);
+        const products = await productService.searchProducts(searchTerm, session.catalog.animal);
         if (!products.length) {
-          response = { text: `😿 No encontramos "${searchTerm}" en DOMIPETS. ¡Intenta otra búsqueda o explora nuestro catálogo!`, buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver productos' }]) };
+          response = { text: `😿 No encontramos "${searchTerm}" en DOMIPETS. ¡Intenta otra búsqueda!`, buttons: addBackButton([{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }]) };
         } else {
-          session.state = STATES.SELECT_PRODUCT;
+          session.state = STATES.VIEW_CATALOG;
           session.catalog.offset = 0;
           await sessionManager.update(phone, session);
           response = {
             text: `🛍️ Resultados para "${searchTerm}" en DOMIPETS:`,
             list: {
               sections: [{
-                title: 'Productos DOMIPETS',
+                title: 'Productos encontrados',
                 rows: products.map(p => ({
                   id: `prod_${p.id}`,
                   title: `${p.title.slice(0, 16)} - $${p.price}`.slice(0, 24),
@@ -837,7 +686,6 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             },
             buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
           };
-          await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
         }
       }
       await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
@@ -852,22 +700,25 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       case STATES.INIT:
         await handleInit();
         break;
+      case STATES.MENU:
+        await handleMenu();
+        break;
       case STATES.SELECT_PET:
         await handleSelectPet();
         break;
-      case STATES.SELECT_CATEGORY:
-        await handleSelectCategory();
+      case STATES.VIEW_CATALOG:
+        await handleViewCatalog();
         break;
       case STATES.SELECT_PRODUCT:
         await handleSelectProduct();
-        break;
-      case STATES.SELECT_SIZE:
-        await handleSelectSize();
         break;
       case STATES.ADD_TO_CART:
         await handleAddToCart();
         break;
       case STATES.VIEW_CART:
+        await handleViewCart();
+        break;
+      case STATES.CONFIRM_ORDER:
         await handleViewCart();
         break;
       case STATES.SUPPORT:
@@ -879,13 +730,13 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       default:
         session.state = STATES.INIT;
         await sessionManager.update(phone, session);
-        response = { text: '🐾 ¡Bienvenid@ a DOMIPETS! Somos tu tienda favorita para consentir a tu mejor amigo. 😻 ¿En qué te ayudamos hoy?', buttons: BUTTONS.MENU };
+        response = { text: '🐾 ¡Bienvenid@ a DOMIPETS! ¿En qué te ayudamos hoy? 😻', buttons: BUTTONS.MENU };
         await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
         break;
     }
   } catch (error) {
     console.error('Error in handleMessage:', error);
-    await sendWhatsAppMessage(phone, '😿 ¡Ups! Algo salió mal en DOMIPETS. Escribe "reiniciar" para empezar de nuevo. 🐾');
+    await sendWhatsAppMessage(phone, '😿 ¡Ups! Algo falló en DOMIPETS. Escribe "reiniciar" para empezar de nuevo. 🐾');
     await sessionManager.reset(phone);
   }
 };
