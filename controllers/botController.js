@@ -113,6 +113,7 @@ const sendWhatsAppMessageWithButtons = async (to, text, buttons) => {
 
 const sendWhatsAppMessageWithList = async (to, text, list, buttons = []) => {
   if (!to || !text || !list?.sections || !Array.isArray(list.sections)) {
+    console.error('Invalid list data:', { to, text, list, buttons });
     throw new Error('Phone number, message text, and valid list sections are required');
   }
   try {
@@ -141,7 +142,7 @@ const sendWhatsAppMessageWithList = async (to, text, list, buttons = []) => {
         reply: { id: btn.id, title: btn.title.slice(0, 20) },
       })).slice(0, 3);
     }
-    console.log(`List payload sent to ${to}:`, JSON.stringify(payload, null, 2));
+    console.log(`List payload sent to ${to}:`, JSON.stringify(payload, null, 2)); // Logging del payload
     const response = await axios.post(
       `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       payload,
@@ -247,6 +248,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         session.catalog.offset = 0;
         await sessionManager.update(phone, session);
         const products = await productService.getCatalogProducts(null, session.catalog.offset);
+        console.log(`Products fetched for catalog:`, products); // Depuración adicional
         if (!products || products.length === 0) {
           response = { text: '😿 ¡No hay productos disponibles en DOMIPETS! Intenta más tarde.', buttons: BUTTONS.MENU };
         } else {
@@ -264,6 +266,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             buttons: products.length >= 10 ? [{ id: 'next', title: 'Siguiente' }, ...BUTTONS.CATALOG] : BUTTONS.CATALOG,
           };
         }
+        await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
       } else if (processedMessage === 'buscar_productos') {
         session.state = STATES.SEARCH_PRODUCTS;
         response = { text: '🔍 Escribe el nombre o descripción del producto que buscas en DOMIPETS:', buttons: addBackButton([]) };
@@ -279,7 +282,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       } else {
         response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
       }
-      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+      if (response && !response.list) await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
     const handleViewCatalog = async () => {
@@ -365,7 +368,8 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       } else {
         response = { text: '🛍️ Elige un producto o usa "siguiente/anterior" para navegar.', buttons: addBackButton([]) };
       }
-      await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
+      if (response.list) await sendWhatsAppMessageWithList(phone, response.text, response.list, response.buttons);
+      else await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
 
     const handleSelectProduct = async () => {
