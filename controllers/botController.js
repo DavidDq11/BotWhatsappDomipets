@@ -122,8 +122,9 @@ const sendWhatsAppCatalogMessage = async (to, text) => {
           type: 'catalog_message',
           body: { text },
           action: {
-            catalog_id: process.env.CATALOG_ID, // Usar el CATALOG_ID del .env
-            sections: [], // Opcional, dejar vacío para mostrar todo el catálogo
+            name: 'open',
+            catalog_id: process.env.CATALOG_ID,
+            sections: [],
           },
         },
       },
@@ -251,7 +252,6 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       } else if (processedMessage === 'ver_carrito') {
         session.state = STATES.VIEW_CART;
         await sessionManager.update(phone, session);
-        // Nota: La API de WhatsApp no permite acceder directamente al carrito nativo desde el bot. Deberías implementar un flujo manual o usar la API de órdenes si está disponible.
         if (!session.cart || session.cart.length === 0) {
           response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! Añade productos desde el catálogo.', buttons: [{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
         } else {
