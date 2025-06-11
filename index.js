@@ -70,6 +70,9 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
+// Define PORT at the top level
+const PORT = process.env.PORT || 10000; // Alineado con logs previos, ajusta si Render usa otro
+
 // Initialize database connection before starting the server
 getPool()
   .then(() => {
