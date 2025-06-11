@@ -47,6 +47,11 @@ const BUTTONS = {
 
 const addBackButton = (buttons) => [...(buttons || []), BUTTONS.BACK];
 
+// Función para formatear precios en COP
+const formatCOP = (amount) => {
+  return `$${amount.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} COP`;
+};
+
 const sendWhatsAppMessage = async (to, text) => {
   if (!to || !text) throw new Error('Phone number and message text are required');
   try {
@@ -252,17 +257,16 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
 
     const handleViewCatalog = async () => {
       if (processedMessage === 'open_catalog') {
-        // Obtener productos del servicio (simula el catálogo anterior)
-        const products = await productService.getCatalogProducts(null, 0, 3); // 3 productos por página
+        const products = await productService.getCatalogProducts(null, 0, 3);
         if (!products || products.length === 0) {
           response = { text: '😿 No hay productos disponibles en DOMIPETS. Intenta más tarde.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         } else {
-          const productList = products.map((p, index) => `${index + 1}. ${p.title} - $${p.price} (${p.stock ? 'In stock' : 'Out of stock'})`).join('\n');
+          const productList = products.map((p, index) => `${index + 1}. ${p.title} - ${formatCOP(p.price)} (${p.stock ? 'In stock' : 'Out of stock'})`).join('\n');
           response = { 
             text: `🛍️ Catálogo de DOMIPETS:\n${productList}\nEscribe el número (1-${products.length}) para añadir al carrito o "siguiente" para más productos.`,
             buttons: [{ id: 'ver_carrito', title: '🛒 Ver carrito' }, { id: 'volver', title: '⬅️ Volver' }]
           };
-          session.catalog = { products, offset: 0 }; // Guardar productos y offset
+          session.catalog = { products, offset: 0 };
           await sessionManager.update(phone, session);
         }
       } else if (processedMessage === 'siguiente' && session.catalog && session.catalog.products) {
@@ -271,7 +275,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         if (!products || products.length === 0) {
           response = { text: '😿 No hay más productos en DOMIPETS.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         } else {
-          const productList = products.map((p, index) => `${index + 1}. ${p.title} - $${p.price} (${p.stock ? 'In stock' : 'Out of stock'})`).join('\n');
+          const productList = products.map((p, index) => `${index + 1}. ${p.title} - ${formatCOP(p.price)} (${p.stock ? 'In stock' : 'Out of stock'})`).join('\n');
           response = { 
             text: `🛍️ Catálogo de DOMIPETS (página ${Math.floor(nextOffset / 3) + 1}):\n${productList}\nEscribe el número (1-${products.length}) para añadir al carrito o "siguiente" para más.`,
             buttons: [{ id: 'ver_carrito', title: '🛒 Ver carrito' }, { id: 'volver', title: '⬅️ Volver' }]
@@ -283,7 +287,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const index = parseInt(processedMessage) - 1;
         if (index >= 0 && index < session.catalog.products.length) {
           const selectedProduct = session.catalog.products[index];
-          session.cart.push({ ...selectedProduct, quantity: 1 }); // Añadir al carrito con cantidad 1
+          session.cart.push({ ...selectedProduct, quantity: 1 });
           await sessionManager.update(phone, session);
           response = { 
             text: `✅ Añadido "${selectedProduct.title}" al carrito. ¿Qué más necesitas?`,
@@ -298,9 +302,9 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         if (!session.cart || session.cart.length === 0) {
           response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! Añade productos desde el catálogo.', buttons: [{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
         } else {
-          const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
+          const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
           response = {
-            text: `🛒 Tu carrito en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - $${(item.price * item.quantity).toFixed(2)}`).join('\n')}\n💰 Total: $${cartTotal}\n¿Confirmas tu pedido?`,
+            text: `🛒 Tu carrito en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n')}\n💰 Total: ${formatCOP(cartTotal)}`,
             buttons: BUTTONS.CART,
           };
         }
@@ -317,11 +321,11 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         if (!session.cart || session.cart.length === 0) {
           response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! Añade productos desde el catálogo.', buttons: [{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
         } else {
-          const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
+          const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
           session.state = STATES.CONFIRM_ORDER;
           await sessionManager.update(phone, session);
           response = {
-            text: `📋 Confirma tu pedido en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - $${(item.price * item.quantity).toFixed(2)}`).join('\n')}\n💰 Total: $${cartTotal} COP\n¿Todo correcto?`,
+            text: `📋 Confirma tu pedido en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n')}\n💰 Total: ${formatCOP(cartTotal)}`,
             buttons: [
               { id: 'confirm_order', title: '✅ Confirmar' },
               { id: 'ver_carrito', title: '🛒 Editar' },
@@ -338,9 +342,9 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         await sessionManager.update(phone, session);
         response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
       } else {
-        const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
+        const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         response = {
-          text: `🛒 Tu carrito en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - $${(item.price * item.quantity).toFixed(2)}`).join('\n')}\n💰 Total: $${cartTotal}\n¿Confirmas tu pedido?`,
+          text: `🛒 Tu carrito en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n')}\n💰 Total: ${formatCOP(cartTotal)}`,
           buttons: BUTTONS.CART,
         };
       }
@@ -349,13 +353,13 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
 
     const handleConfirmOrder = async () => {
       if (processedMessage === 'confirm_order') {
-        const cartItems = session.cart.map(item => `${item.quantity} x ${item.title} - $${(item.price * item.quantity).toFixed(2)}`).join('\n');
-        const total = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
+        const cartItems = session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n');
+        const total = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         const pool = await getPool();
         const result = await pool.query('INSERT INTO orders (phone, items, total, created_at, status) VALUES ($1, $2, $3, $4, $5) RETURNING id', [phone, JSON.stringify(session.cart), total, new Date(), 'pending']);
         const orderId = result.rows[0].id;
         response = {
-          text: `🎉 ¡Pedido #${orderId} confirmado en DOMIPETS!\nResumen:\n${cartItems}\n💰 Total: $${total} COP\nEl equipo te contactará para pago y entrega. 🐾`,
+          text: `🎉 ¡Pedido #${orderId} confirmado en DOMIPETS!\nResumen:\n${cartItems}\n💰 Total: ${formatCOP(total)}`,
           buttons: BUTTONS.MENU,
         };
         session.cart = [];
@@ -366,9 +370,9 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         await sessionManager.update(phone, session);
         response = await handleViewCart();
       } else {
-        const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2);
+        const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         response = {
-          text: `📋 Confirma tu pedido en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - $${(item.price * item.quantity).toFixed(2)}`).join('\n')}\n💰 Total: $${cartTotal} COP\n¿Todo correcto?`,
+          text: `📋 Confirma tu pedido en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n')}\n💰 Total: ${formatCOP(cartTotal)}`,
           buttons: [
             { id: 'confirm_order', title: '✅ Confirmar' },
             { id: 'ver_carrito', title: '🛒 Editar' },
@@ -424,7 +428,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const pool = await getPool();
         const order = await pool.query('SELECT status, total FROM orders WHERE phone = $1 AND id = $2', [phone, processedMessage]);
         response = order.rows.length > 0
-          ? { text: `📦 Pedido #${processedMessage} en DOMIPETS: ${order.rows[0].status}. Total: $${order.rows[0].total}.`, buttons: BUTTONS.MENU }
+          ? { text: `📦 Pedido #${processedMessage} en DOMIPETS: ${order.rows[0].status}. Total: ${formatCOP(order.rows[0].total)}.`, buttons: BUTTONS.MENU }
           : { text: '🚚 No encontramos ese pedido. Verifica el número o escribe "volver".', buttons: addBackButton([]) };
         session.state = STATES.MENU;
         session.supportAction = null;
@@ -478,7 +482,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               session.state = STATES.VIEW_CATALOG;
               session.catalog = { offset: 0, searchTerm, products };
               await sessionManager.update(phone, session);
-              const visibleProducts = products.slice(0, 3).map((p, index) => `${index + 1}. ${p.title} - $${p.price}`).join('\n');
+              const visibleProducts = products.slice(0, 3).map((p, index) => `${index + 1}. ${p.title} - ${formatCOP(p.price)}`).join('\n');
               response = { 
                 text: `🔍 Resultados para "${searchTerm}":\n${visibleProducts}\nEscribe un número (1-3) para seleccionar o "siguiente" para más.`,
                 buttons: addBackButton([])
