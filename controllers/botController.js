@@ -13,7 +13,7 @@ const STATES = {
   INIT: 'INIT',
   MENU: 'MENU',
   VIEW_CATALOG: 'VIEW_CATALOG',
-  SELECT_QUANTITY: 'SELECT_QUANTITY', // Nuevo estado para seleccionar cantidad
+  SELECT_QUANTITY: 'SELECT_QUANTITY',
   VIEW_CART: 'VIEW_CART',
   CONFIRM_ORDER: 'CONFIRM_ORDER',
   SUPPORT: 'SUPPORT',
@@ -87,8 +87,8 @@ const sendWhatsAppMessageWithButtons = async (to, text, buttons) => {
     }
     const validButtons = buttons.map(btn => ({
       type: 'reply',
-      reply: { id: btn.id, title: btn.title.length > 20 ? btn.title.substring(0, 20) : btn.title },
-    })).slice(0, 3);
+      reply: { id: `select_${btn.id}`, title: btn.title.length > 20 ? btn.title.substring(0, 20) : btn.title },
+    })).slice(0, 3); // Límite de 3 botones por mensaje
     const response = await axios.post(
       `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
@@ -173,7 +173,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
   session.cart = session.cart || [];
   session.catalog = session.catalog || { offset: 0 };
   session.errorCount = session.errorCount || 0;
-  session.selectedProduct = session.selectedProduct || null; // Para rastrear el producto seleccionado
+  session.selectedProduct = session.selectedProduct || null;
 
   let processedMessage = (userMessage || '').trim().toLowerCase();
 
@@ -259,21 +259,33 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
 
     const handleViewCatalog = async () => {
       if (processedMessage === 'open_catalog') {
-        const products = await productService.getCatalogProducts(null, 0); // Sin límite, muestra todos
+        const products = await productService.getCatalogProducts(null, 0); // Muestra todos los productos
         if (!products || products.length === 0) {
           response = { text: '😿 No hay productos disponibles en DOMIPETS. Intenta más tarde.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         } else {
-          const productList = products.map((p, index) => `${index + 1}. ${p.title} - ${formatCOP(p.price)} (${p.stock ? 'In stock' : 'Out of stock'})`).join('\n');
+          const productButtons = products.slice(0, 3).map((p, index) => ({ id: index, title: `${p.title} - ${formatCOP(p.price)}` }));
           response = { 
-            text: `🛍️ Catálogo de DOMIPETS:\n${productList}\nEscribe el número (1-${products.length}) para seleccionar un producto y definir la cantidad.`,
-            buttons: [{ id: 'ver_carrito', title: '🛒 Ver carrito' }, { id: 'volver', title: '⬅️ Volver' }]
+            text: '🛍️ Selecciona un producto del catálogo de DOMIPETS:',
+            buttons: [...productButtons, { id: 'more_products', title: '📦 Ver más' }, { id: 'volver', title: '⬅️ Volver' }]
           };
           session.catalog = { products };
           await sessionManager.update(phone, session);
         }
-      } else if (processedMessage.match(/^\d+$/) && session.catalog && session.catalog.products) {
-        const index = parseInt(processedMessage) - 1;
-        if (index >= 0 && index < session.catalog.products.length) {
+      } else if (processedMessage === 'more_products' && session.catalog && session.catalog.products) {
+        const startIndex = session.catalog.products.length > 3 ? 3 : 0;
+        const productButtons = session.catalog.products.slice(startIndex, startIndex + 3).map((p, index) => ({ id: startIndex + index, title: `${p.title} - ${formatCOP(p.price)}` }));
+        if (productButtons.length === 0) {
+          response = { text: '😿 No hay más productos en DOMIPETS.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
+        } else {
+          response = { 
+            text: '🛍️ Selecciona un producto del catálogo de DOMIPETS:',
+            buttons: [...productButtons, { id: 'more_products', title: '📦 Ver más' }, { id: 'volver', title: '⬅️ Volver' }]
+          };
+        }
+        await sessionManager.update(phone, session);
+      } else if (processedMessage.startsWith('select_')) {
+        const index = parseInt(processedMessage.replace('select_', ''));
+        if (session.catalog && session.catalog.products && index >= 0 && index < session.catalog.products.length) {
           session.selectedProduct = session.catalog.products[index];
           session.state = STATES.SELECT_QUANTITY;
           await sessionManager.update(phone, session);
@@ -282,7 +294,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
             buttons: [{ id: 'volver', title: '⬅️ Volver' }]
           };
         } else {
-          response = { text: '😿 Número inválido. Elige un número de la lista.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
+          response = { text: '😿 Selección inválida. Vuelve a intentarlo.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         }
       } else if (processedMessage === 'ver_carrito') {
         session.state = STATES.VIEW_CART;
@@ -309,11 +321,11 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         const quantity = parseInt(processedMessage);
         if (quantity > 0) {
           session.cart.push({ ...session.selectedProduct, quantity });
-          session.selectedProduct = null;
+          session.selectedProduct = null; // Reiniciar selectedProduct
           session.state = STATES.VIEW_CATALOG;
           await sessionManager.update(phone, session);
           response = { 
-            text: `✅ Añadidas ${quantity} unidades de "${session.selectedProduct.title}" al carrito. ¿Qué más necesitas?`,
+            text: `✅ Añadidas ${quantity} unidades de "${session.catalog.products.find(p => p.title === session.selectedProduct?.title)?.title || session.selectedProduct?.title}" al carrito. ¿Qué más necesitas?`,
             buttons: [{ id: 'ver_carrito', title: '🛒 Ver carrito' }, { id: 'volver', title: '⬅️ Volver' }]
           };
         } else {
@@ -323,7 +335,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
         session.selectedProduct = null;
         session.state = STATES.VIEW_CATALOG;
         await sessionManager.update(phone, session);
-        response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+        response = { text: '🛍️ Selecciona un producto del catálogo de DOMIPETS:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
       }
       if (response) await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
@@ -348,11 +360,11 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
       } else if (processedMessage === 'ver_catalogo') {
         session.state = STATES.VIEW_CATALOG;
         await sessionManager.update(phone, session);
-        response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+        response = { text: '🛍️ Selecciona un producto del catálogo de DOMIPETS:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
       } else if (processedMessage === 'volver') {
         session.state = STATES.VIEW_CATALOG;
         await sessionManager.update(phone, session);
-        response = { text: '🛍️ Explora el catálogo de DOMIPETS y elige tus productos:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+        response = { text: '🛍️ Selecciona un producto del catálogo de DOMIPETS:', buttons: [{ id: 'open_catalog', title: '📦 Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
       } else {
         const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         response = {
@@ -494,10 +506,10 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
               session.state = STATES.VIEW_CATALOG;
               session.catalog = { offset: 0, searchTerm, products };
               await sessionManager.update(phone, session);
-              const visibleProducts = products.map((p, index) => `${index + 1}. ${p.title} - ${formatCOP(p.price)}`).join('\n');
+              const productButtons = products.slice(0, 3).map((p, index) => ({ id: index, title: `${p.title} - ${formatCOP(p.price)}` }));
               response = { 
-                text: `🔍 Resultados para "${searchTerm}":\n${visibleProducts}\nEscribe el número (1-${products.length}) para seleccionar un producto y definir la cantidad.`,
-                buttons: addBackButton([])
+                text: `🔍 Resultados para "${searchTerm}":`,
+                buttons: [...productButtons, { id: 'more_products', title: '📦 Ver más' }, { id: 'volver', title: '⬅️ Volver' }]
               };
             }
           } catch (error) {
