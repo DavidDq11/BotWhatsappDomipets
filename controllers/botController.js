@@ -49,7 +49,7 @@ const addBackButton = (buttons) => [...(buttons || []), BUTTONS.BACK];
 
 // Función para formatear precios en COP
 const formatCOP = (amount) => {
-  return `$${amount.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} COP`;
+  return `$${amount.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 6 })} COP`;
 };
 
 const sendWhatsAppMessage = async (to, text) => {
@@ -257,7 +257,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
 
     const handleViewCatalog = async () => {
       if (processedMessage === 'open_catalog') {
-        const products = await productService.getCatalogProducts(null, 0, 3);
+        const products = await productService.getCatalogProducts(null, 0, 5);
         if (!products || products.length === 0) {
           response = { text: '😿 No hay productos disponibles en DOMIPETS. Intenta más tarde.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         } else {
