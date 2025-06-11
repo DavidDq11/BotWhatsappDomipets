@@ -46,7 +46,15 @@ router.get('/whatsapp', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+  const userAgent = req.get('user-agent');
 
+  // Permitir facebookexternalhit para scraping de Meta
+  if (userAgent && userAgent.includes('facebookexternalhit')) {
+    res.status(200).send(''); // Respuesta vacía para scraping
+    return;
+  }
+
+  // Validación del webhook de WhatsApp
   if (mode === 'subscribe' && token === process.env.WHATSAPP_TOKEN) {
     console.log('Webhook verified');
     res.status(200).send(challenge);
