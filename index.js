@@ -11,6 +11,9 @@ const app = express();
 // Middleware global
 app.use(express.json());
 
+// Sirve archivos estáticos (incluyendo robots.txt desde la carpeta public)
+app.use(express.static('public'));
+
 // Endpoint de salud para mantener el servidor despierto
 app.get('/healthz', (req, res) => {
   res.status(200).send('OK');
@@ -69,6 +72,27 @@ if (process.env.NODE_ENV !== 'production') {
     }
   });
 }
+
+// Ajuste del endpoint /webhook/whatsapp directamente en index.js (si webhookRouter no lo maneja)
+app.get('/webhook/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  const userAgent = req.get('user-agent');
+
+  // Permitir facebookexternalhit para scraping de Meta
+  if (userAgent && userAgent.includes('facebookexternalhit')) {
+    res.status(200).send(''); // Respuesta vacía para scraping
+    return;
+  }
+
+  // Validación del webhook de WhatsApp
+  if (mode === 'subscribe' && token === 'Domipets2025') {
+    res.status(200).send(challenge);
+  } else {
+    res.status(403).send('Forbidden');
+  }
+});
 
 // Define PORT at the top level
 const PORT = process.env.PORT || 10000; // Alineado con logs previos, ajusta si Render usa otro
