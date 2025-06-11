@@ -48,9 +48,16 @@ router.get('/whatsapp', (req, res) => {
   const challenge = req.query['hub.challenge'];
   const userAgent = req.get('user-agent');
 
-  // Permitir facebookexternalhit para scraping de Meta
+  // Permitir facebookexternalhit para scraping de Meta con metadatos básicos
   if (userAgent && userAgent.includes('facebookexternalhit')) {
-    res.status(200).send(''); // Respuesta vacía para scraping
+    res.set({
+      'Content-Type': 'text/html',
+      'og:title': 'Domipets WhatsApp Bot',
+      'og:description': 'Webhook para el bot de WhatsApp de Domipets',
+      'og:image': 'https://botwhatsappdomipets.onrender.com/public/domipets-logo.jpg', // Asegúrate de subir esta imagen a public/
+      'og:url': 'https://botwhatsappdomipets.onrender.com/webhook/whatsapp'
+    });
+    res.status(200).send(''); // Respuesta vacía con metadatos
     return;
   }
 
