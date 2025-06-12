@@ -8,36 +8,45 @@ router.post('/whatsapp', (req, res) => {
   console.log('Incoming webhook payload:', JSON.stringify(body));
 
   if (body.object !== 'whatsapp_business_account' || !body.entry || !body.entry[0]?.changes) {
+    console.log('Invalid payload structure:', JSON.stringify(body));
     return res.sendStatus(200);
   }
 
   const change = body.entry[0].changes[0];
   if (!change?.value?.messages || !change.value.messages[0]) {
+    console.log('No messages in payload:', JSON.stringify(change.value));
     return res.sendStatus(200);
   }
 
   const messageObj = change.value.messages[0];
   const phone = messageObj.from;
+  console.log('Extracted phone:', phone); // Nuevo log
   let message = '';
   let interactive = null;
 
   if (messageObj.type === 'text' && messageObj.text) {
     message = messageObj.text.body || '';
+    console.log('Extracted text message:', message);
   } else if (messageObj.type === 'interactive') {
     interactive = messageObj.interactive;
+    console.log('Extracted interactive message:', JSON.stringify(interactive));
     if (messageObj.interactive.button_reply) message = messageObj.interactive.button_reply.title;
-    else if (messageObj.interactive.list_reply) message = messageObj.interactive.list_reply.id; // Cambiado a id para consistencia
+    else if (messageObj.interactive.list_reply) message = messageObj.interactive.list_reply.id;
   }
 
   if (!message && !interactive) {
+    console.log('No message or interactive content found');
     return res.sendStatus(200);
   }
 
   sessionManager.get(phone); // Inicializa sesión si no existe
   botController.handleMessage(message, phone, interactive)
-    .then(() => res.status(200).json({ success: true }))
+    .then(() => {
+      console.log('Message processed successfully for phone:', phone);
+      res.status(200).json({ success: true });
+    })
     .catch(err => {
-      console.error('Error processing message:', err);
+      console.error('Error processing message for phone', phone, ':', err);
       res.status(200).json({ success: false, error: err.message });
     });
 });
