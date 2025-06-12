@@ -26,7 +26,7 @@ router.post('/whatsapp', (req, res) => {
   } else if (messageObj.type === 'interactive') {
     interactive = messageObj.interactive;
     if (messageObj.interactive.button_reply) message = messageObj.interactive.button_reply.title;
-    else if (messageObj.interactive.list_reply) message = messageObj.interactive.list_reply.title;
+    else if (messageObj.interactive.list_reply) message = messageObj.interactive.list_reply.id; // Cambiado a id para consistencia
   }
 
   if (!message && !interactive) {
