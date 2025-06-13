@@ -203,7 +203,7 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
   try {
     if (
       processedMessage &&
-      !['ver_catalogo', 'buscar_productos', 'hablar_agente', 'estado_pedido', 'ver_carrito', 'finalizar_pedido', 'volver', 'reiniciar'].some(id => processedMessage.startsWith(id) || processedMessage === id) &&
+      !['ver_catalogo', 'buscar_productos', 'hablar_agente', 'estado_pedido', 'ver_carrito', 'finalizar_pedido', 'volver', 'reiniciar', 'adicionar', 'eliminar', 'hacer_pedido'].some(id => processedMessage.startsWith(id) || processedMessage === id) &&
       isNaN(parseInt(processedMessage))
     ) {
       session.errorCount += 1;
@@ -256,28 +256,44 @@ const handleMessage = async (userMessage, phone, interactiveMessage) => {
     };
 
     const handleViewCatalog = async () => {
-      if (processedMessage === 'ver_carrito') {
-        session.state = STATES.VIEW_CART;
-        await sessionManager.update(phone, session);
-        if (!session.cart || session.cart.length === 0) {
-          response = { text: '🛒 ¡Tu carrito en DOMIPETS está vacío! Añade productos desde el catálogo.', buttons: [{ id: 'ver_catalogo', title: '🛍️ Ver catálogo' }, { id: 'volver', title: '⬅️ Volver' }] };
+      session.cart = session.cart || [];
+
+      if (processedMessage === 'adicionar' || processedMessage === 'ver_catalogo') {
+        await sendWhatsAppCatalogMessage(phone, '🛍️ Explora el catálogo de DOMIPETS:');
+      } else if (processedMessage === 'eliminar') {
+        if (session.cart.length === 0) {
+          response = { text: '🛒 Tu carrito está vacío. Añade productos primero.', buttons: [{ id: 'adicionar', title: '➕ Adicionar producto' }, { id: 'hacer_pedido', title: '✅ Hacer pedido' }] };
         } else {
-          const cartTotal = session.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-          response = {
-            text: `🛒 Tu carrito en DOMIPETS:\n${session.cart.map(item => `${item.quantity} x ${item.title} - ${formatCOP(item.price * item.quantity)}`).join('\n')}\n💰 Total: ${formatCOP(cartTotal)}`,
-            buttons: BUTTONS.CART,
-          };
+          const cartList = session.cart.map((item, index) => `${index + 1}. ${item.title} - ${formatCOP(item.price)}`).join('\n');
+          response = { text: `🛒 Productos en carrito:\n${cartList}\nEscribe el número a eliminar o "volver" para regresar.`, buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
         }
-      } else if (processedMessage === 'volver') {
-        session.state = STATES.MENU;
+      } else if (!isNaN(parseInt(processedMessage)) && processedMessage !== 'hacer_pedido') {
+        const index = parseInt(processedMessage) - 1;
+        const products = await productService.getCatalogProducts(null);
+        const product = products[index];
+        if (product) {
+          session.cart.push({ ...product, quantity: 1 });
+          await sessionManager.update(phone, session);
+          response = { text: `✅ Añadido "${product.title}" al carrito.`, buttons: [{ id: 'adicionar', title: '➕ Adicionar producto' }, { id: 'eliminar', title: '➖ Eliminar producto' }, { id: 'hacer_pedido', title: '✅ Hacer pedido' }] };
+        } else {
+          response = { text: '😿 Producto no válido. Intenta de nuevo.', buttons: [{ id: 'adicionar', title: '➕ Adicionar producto' }, { id: 'hacer_pedido', title: '✅ Hacer pedido' }] };
+        }
+      } else if (processedMessage === 'hacer_pedido') {
+        session.state = STATES.CONFIRM_ORDER;
         await sessionManager.update(phone, session);
-        response = { text: '🐾 ¿En qué te ayudamos hoy en DOMIPETS? 😻', buttons: BUTTONS.MENU };
+        await handleConfirmOrder();
+        return;
+      } else if (processedMessage.startsWith('eliminar') && !isNaN(parseInt(processedMessage.split(' ')[1]))) {
+        const index = parseInt(processedMessage.split(' ')[1]) - 1;
+        if (session.cart[index]) {
+          session.cart.splice(index, 1);
+          await sessionManager.update(phone, session);
+          response = { text: '❌ Producto eliminado. Escribe "adicionar" para continuar o "hacer_pedido" para finalizar.', buttons: [{ id: 'adicionar', title: '➕ Adicionar producto' }, { id: 'hacer_pedido', title: '✅ Hacer pedido' }] };
+        } else {
+          response = { text: '😿 Índice inválido. Intenta de nuevo.', buttons: [{ id: 'volver', title: '⬅️ Volver' }] };
+        }
       } else {
-        // Simular selección de producto (en realidad, el usuario selecciona desde el catálogo)
-        session.state = STATES.SELECT_PRODUCT;
-        session.selectedProductId = processedMessage; // Esto se manejará manualmente o via callback del catálogo
-        await sessionManager.update(phone, session);
-        response = { text: '📦 Selecciona la cantidad para el producto elegido (ej. 1, 2, 3) o "volver" para regresar.', buttons: addBackButton([]) };
+        await sendWhatsAppCatalogMessage(phone, '🛍️ Explora el catálogo de DOMIPETS:');
       }
       if (response) await sendWhatsAppMessageWithButtons(phone, response.text, response.buttons);
     };
